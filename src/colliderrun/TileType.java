@@ -1,8 +1,10 @@
 package colliderrun;
 
 public enum TileType {
-    ENERGY,
+    INJECTOR,
+    MAGNET,
     LUMINOSITY,
-    CALIBRATION,
-    COLLISION
+    DETECTOR,
+    COOLING,
+    CHAMBER
 }

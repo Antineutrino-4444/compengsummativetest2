@@ -1,5 +1,6 @@
 package colliderrun;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
@@ -12,44 +13,55 @@ public class CollisionEngine {
         this.random = random;
     }
 
-    public CollisionOutcome trigger(double beamEnergyGeV, double calibration, double luminosity) {
-        double partonFraction = 0.1 + random.nextDouble() * 0.9;
-        double calibrationFactor = 0.65 + (calibration / 100.0) * 0.55;
-        double effective = beamEnergyGeV * partonFraction * calibrationFactor;
+    public CollisionOutcome resolve(double beamEnergyGeV,
+                                    double magnetFocus,
+                                    double detectorCalibration,
+                                    double luminosity,
+                                    double heat,
+                                    ParticleType target) {
+
+        double partonFraction = 0.25 + random.nextDouble() * 0.75;
+        double focusFactor = 0.55 + (magnetFocus / 100.0) * 0.65;
+        double calibrationFactor = 0.65 + (detectorCalibration / 100.0) * 0.5;
+        double luminosityFactor = 0.75 + (luminosity / 100.0) * 0.5;
+        double heatPenalty = Math.max(0.35, 1.0 - (heat / 170.0));
+
+        double effective = beamEnergyGeV * partonFraction * focusFactor * calibrationFactor * luminosityFactor * heatPenalty;
 
         List<ParticleType> available = database.availableAtEnergy(effective);
         if (available.isEmpty()) {
             return new CollisionOutcome(false, null, partonFraction, effective,
-                    "Soft collision: no heavy final state identified.", -30);
+                    "No hard scatter: only soft hadronic spray observed.", -45);
         }
 
-        ParticleType chosen = chooseWeighted(available, luminosity);
-        if (chosen == ParticleType.TOP_PAIR && effective < ParticleType.TOP_PAIR.thresholdGeV * 1.04) {
-            return new CollisionOutcome(false, null, partonFraction, effective,
-                    "Ambiguous top-like jets failed validation.", -40);
+        ParticleType selected = chooseWeighted(available, target);
+        if (selected.ordinal() < target.ordinal()) {
+            return new CollisionOutcome(true, selected, partonFraction, effective,
+                    "Valid event, but below target signature: " + selected.label, 100);
         }
 
-        int score = 100 + (int) Math.round(chosen.thresholdGeV * 3.5 + luminosity * 1.6);
-        return new CollisionOutcome(true, chosen, partonFraction, effective,
-                "Detected " + chosen.label + " : " + chosen.eventDescription, score);
+        int score = 220 + selected.ordinal() * 90 + (int) Math.round(effective * 1.8);
+        return new CollisionOutcome(true, selected, partonFraction, effective,
+                "Target-grade event: " + selected.label + " confirmed.", score);
     }
 
-    private ParticleType chooseWeighted(List<ParticleType> available, double luminosity) {
-        double sum = 0.0;
+    private ParticleType chooseWeighted(List<ParticleType> available, ParticleType target) {
+        List<Double> weights = new ArrayList<>();
+        double total = 0;
         for (ParticleType p : available) {
-            double lumBoost = 1.0 + luminosity / 220.0;
-            double energyPenalty = 1.0 / Math.max(1.0, p.thresholdGeV / 20.0);
-            sum += p.baseWeight * lumBoost * energyPenalty;
+            double targetBias = p.ordinal() >= target.ordinal() ? 1.35 : 0.8;
+            double rarity = p.baseWeight;
+            double w = rarity * targetBias;
+            weights.add(w);
+            total += w;
         }
 
-        double x = random.nextDouble() * sum;
-        double running = 0.0;
-        for (ParticleType p : available) {
-            double lumBoost = 1.0 + luminosity / 220.0;
-            double energyPenalty = 1.0 / Math.max(1.0, p.thresholdGeV / 20.0);
-            running += p.baseWeight * lumBoost * energyPenalty;
+        double x = random.nextDouble() * total;
+        double running = 0;
+        for (int i = 0; i < available.size(); i++) {
+            running += weights.get(i);
             if (x <= running) {
-                return p;
+                return available.get(i);
             }
         }
         return available.get(available.size() - 1);

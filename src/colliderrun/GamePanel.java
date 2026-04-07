@@ -11,7 +11,6 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Polygon;
-import java.awt.RadialGradientPaint;
 import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyAdapter;
@@ -30,68 +29,59 @@ public class GamePanel extends JPanel {
     private final Timer timer;
     private final Random random = new Random();
 
+    private final Map<String, Point> boardPoints = new HashMap<>();
+    private final List<ParticleFx> particles = new ArrayList<>();
+
+    private ScreenState state = ScreenState.TITLE;
     private long lastTickNanos = System.nanoTime();
-    private ScreenState screenState = ScreenState.TITLE;
-
-    private final Map<String, Point> cellPositions = new HashMap<>();
-    private final List<ParticleFx> particleFx = new ArrayList<>();
-    private final List<FloatingText> floatingTexts = new ArrayList<>();
-
-    private int previousScore;
-    private int previousLives;
-    private int previousDiscoveryCount;
+    private double pulse;
 
     private double playerRenderX;
     private double playerRenderY;
-    private final List<Point> enemyRender = new ArrayList<>();
-    private double pulseT;
+    private double chamberFlash;
 
     public GamePanel() {
-        setBackground(new Color(5, 8, 18));
+        setBackground(new Color(7, 10, 20));
         setFocusable(true);
-        setupKeybinds();
-
-        playerRenderX = 0;
-        playerRenderY = 0;
-        previousLives = model.lives;
+        setupInput();
 
         timer = new Timer(16, this::onFrame);
         timer.start();
     }
 
-    private void setupKeybinds() {
+    private void setupInput() {
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 switch (e.getKeyCode()) {
                     case KeyEvent.VK_ENTER -> {
-                        if (screenState == ScreenState.TITLE || screenState == ScreenState.END) {
+                        if (state == ScreenState.TITLE || state == ScreenState.END) {
                             model.reset();
-                            previousScore = 0;
-                            previousDiscoveryCount = 0;
-                            previousLives = model.lives;
-                            screenState = ScreenState.PLAYING;
+                            particles.clear();
+                            state = ScreenState.PLAYING;
                         }
                     }
                     case KeyEvent.VK_P -> {
-                        if (screenState == ScreenState.PLAYING) {
-                            screenState = ScreenState.PAUSED;
-                        } else if (screenState == ScreenState.PAUSED) {
-                            screenState = ScreenState.PLAYING;
-                        }
+                        if (state == ScreenState.PLAYING) state = ScreenState.PAUSED;
+                        else if (state == ScreenState.PAUSED) state = ScreenState.PLAYING;
                     }
                     case KeyEvent.VK_R -> {
                         model.reset();
-                        previousScore = 0;
-                        previousDiscoveryCount = 0;
-                        previousLives = model.lives;
-                        particleFx.clear();
-                        floatingTexts.clear();
-                        screenState = ScreenState.PLAYING;
+                        particles.clear();
+                        state = ScreenState.PLAYING;
+                    }
+                    case KeyEvent.VK_SPACE -> {
+                        if (state == ScreenState.PLAYING) {
+                            model.triggerCollision();
+                            if (model.lastCollisionTriggered) {
+                                chamberFlash = model.lastCollisionSuccess ? 1.0 : 0.65;
+                                spawnCollisionParticles(model.lastCollisionSuccess ? 55 : 28);
+                            }
+                        }
                     }
                     default -> {
-                        if (screenState == ScreenState.PLAYING) {
-                            handleMoveKey(e.getKeyCode());
+                        if (state == ScreenState.PLAYING) {
+                            handleMove(e.getKeyCode());
                         }
                     }
                 }
@@ -100,87 +90,64 @@ public class GamePanel extends JPanel {
         });
     }
 
-    private void handleMoveKey(int keyCode) {
+    private void handleMove(int keyCode) {
         switch (keyCode) {
             case KeyEvent.VK_Q, KeyEvent.VK_NUMPAD7 -> model.movePlayer(-1, -1);
             case KeyEvent.VK_W, KeyEvent.VK_NUMPAD9, KeyEvent.VK_UP -> model.movePlayer(-1, 0);
             case KeyEvent.VK_A, KeyEvent.VK_NUMPAD1, KeyEvent.VK_LEFT -> model.movePlayer(1, 0);
             case KeyEvent.VK_S, KeyEvent.VK_NUMPAD3, KeyEvent.VK_RIGHT, KeyEvent.VK_DOWN -> model.movePlayer(1, 1);
-            default -> {
-                return;
-            }
         }
     }
 
     private void onFrame(ActionEvent ignored) {
         long now = System.nanoTime();
-        long deltaMs = (now - lastTickNanos) / 1_000_000;
+        long dt = (now - lastTickNanos) / 1_000_000;
         lastTickNanos = now;
-        pulseT += deltaMs * 0.0025;
+        pulse += dt * 0.0022;
 
-        if (screenState == ScreenState.PLAYING) {
-            model.tick(deltaMs);
-            postTickEffects();
+        if (state == ScreenState.PLAYING) {
+            model.tick(dt);
             if (model.gameOver || model.victory) {
-                screenState = ScreenState.END;
+                state = ScreenState.END;
             }
         }
 
-        updateAnimations(deltaMs);
+        updateLayout();
+        animate(dt);
         repaint();
     }
 
-    private void postTickEffects() {
-        if (model.lastCollisionTriggered) {
-            spawnBurst(model.lastCollisionSuccess ? 20 : 12,
-                    model.lastCollisionSuccess ? new Color(60, 255, 180) : new Color(255, 90, 90));
-            if (model.lastCollisionSuccess) {
-                floatingTexts.add(new FloatingText("VALID EVENT", new Color(150, 255, 160)));
-            } else {
-                floatingTexts.add(new FloatingText("REJECTED", new Color(255, 120, 120)));
+    private void updateLayout() {
+        boardPoints.clear();
+        int centerX = getWidth() / 2;
+        int topY = 170;
+        int gapX = 95;
+        int gapY = 62;
+
+        for (int r = 0; r < GameModel.ROWS; r++) {
+            for (int c = 0; c <= r; c++) {
+                int x = centerX + (int) ((c - r * 0.5) * gapX);
+                int y = topY + r * gapY;
+                boardPoints.put(key(r, c), new Point(x, y));
             }
         }
 
-        if (model.score > previousScore) {
-            floatingTexts.add(new FloatingText("+" + (model.score - previousScore), new Color(255, 220, 110)));
+        if (playerRenderX == 0 && playerRenderY == 0) {
+            Point p = boardPoints.get(key(0, 0));
+            playerRenderX = p.x;
+            playerRenderY = p.y;
         }
-        previousScore = model.score;
-
-        if (model.discoveries.size() > previousDiscoveryCount) {
-            floatingTexts.add(new FloatingText("NEW DISCOVERY", new Color(130, 255, 130)));
-            spawnBurst(30, new Color(130, 255, 180));
-        }
-        previousDiscoveryCount = model.discoveries.size();
-
-        if (model.lives < previousLives) {
-            spawnBurst(20, new Color(255, 120, 120));
-        }
-        previousLives = model.lives;
     }
 
-    private void updateAnimations(long deltaMs) {
-        Point playerTarget = cellPositions.get(key(model.player.row, model.player.col));
-        if (playerTarget != null) {
-            playerRenderX = lerp(playerRenderX, playerTarget.x, 0.22);
-            playerRenderY = lerp(playerRenderY, playerTarget.y, 0.22);
+    private void animate(long dt) {
+        Point p = boardPoints.get(key(model.player.row, model.player.col));
+        if (p != null) {
+            playerRenderX = lerp(playerRenderX, p.x, 0.25);
+            playerRenderY = lerp(playerRenderY, p.y, 0.25);
         }
 
-        while (enemyRender.size() < model.enemies.size()) {
-            enemyRender.add(new Point((int) playerRenderX, (int) playerRenderY));
-        }
-
-        for (int i = 0; i < model.enemies.size(); i++) {
-            Actor enemy = model.enemies.get(i);
-            Point target = cellPositions.get(key(enemy.row, enemy.col));
-            if (target != null) {
-                Point rp = enemyRender.get(i);
-                rp.x = (int) lerp(rp.x, target.x, 0.2);
-                rp.y = (int) lerp(rp.y, target.y, 0.2);
-            }
-        }
-
-        particleFx.removeIf(p -> !p.step(deltaMs));
-        floatingTexts.removeIf(t -> !t.step(deltaMs));
+        chamberFlash = Math.max(0, chamberFlash - dt / 420.0);
+        particles.removeIf(px -> !px.step(dt));
     }
 
     @Override
@@ -190,18 +157,14 @@ public class GamePanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         drawBackground(g2);
-        computeBoardLayout();
+        drawBeamline(g2);
         drawBoard(g2);
-        drawEffects(g2);
+        drawParticles(g2);
         drawHud(g2);
 
-        if (screenState == ScreenState.TITLE) {
-            drawTitleOverlay(g2);
-        } else if (screenState == ScreenState.PAUSED) {
-            drawPauseOverlay(g2);
-        } else if (screenState == ScreenState.END) {
-            drawEndOverlay(g2);
-        }
+        if (state == ScreenState.TITLE) drawTitle(g2);
+        if (state == ScreenState.PAUSED) drawPause(g2);
+        if (state == ScreenState.END) drawEnd(g2);
 
         g2.dispose();
     }
@@ -209,277 +172,227 @@ public class GamePanel extends JPanel {
     private void drawBackground(Graphics2D g2) {
         int w = getWidth();
         int h = getHeight();
-        GradientPaint bg = new GradientPaint(0, 0, new Color(8, 10, 30), 0, h, new Color(4, 4, 10));
-        g2.setPaint(bg);
+        g2.setPaint(new GradientPaint(0, 0, new Color(9, 12, 28), 0, h, new Color(5, 6, 14)));
         g2.fillRect(0, 0, w, h);
 
-        g2.setColor(new Color(90, 130, 255, 70));
-        for (int i = 0; i < 100; i++) {
-            int x = (i * 97) % Math.max(1, w);
-            int y = (i * 53 + 37) % Math.max(1, h);
+        g2.setColor(new Color(90, 120, 180, 40));
+        for (int i = 0; i < 120; i++) {
+            int x = (i * 73) % Math.max(w, 1);
+            int y = (i * 43 + 21) % Math.max(h, 1);
             int r = (i % 3) + 1;
             g2.fillOval(x, y, r, r);
         }
-
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.2f));
-        g2.setColor(new Color(70, 130, 255));
-        for (int i = 0; i < 6; i++) {
-            int y = (int) (120 + i * 90 + Math.sin(pulseT + i) * 12);
-            g2.drawLine(0, y, w, y + 30);
-        }
-        g2.setComposite(AlphaComposite.SrcOver);
     }
 
-    private void computeBoardLayout() {
-        cellPositions.clear();
-        int centerX = getWidth() / 2;
-        int startY = 170;
-        int stepX = 95;
-        int stepY = 58;
+    private void drawBeamline(Graphics2D g2) {
+        Point chamber = boardPoints.get(key(GameModel.ROWS - 1, GameModel.ROWS / 2));
+        if (chamber == null) return;
 
-        for (int r = 0; r < GameModel.ROWS; r++) {
-            for (int c = 0; c <= r; c++) {
-                int x = centerX + (int) ((c - (r * 0.5)) * stepX);
-                int y = startY + r * stepY;
-                cellPositions.put(key(r, c), new Point(x, y));
-            }
-        }
+        int sourceLeftX = getWidth() / 2 - 360;
+        int sourceRightX = getWidth() / 2 + 360;
+        int sourceY = chamber.y - 250;
 
-        if (playerRenderX == 0 && playerRenderY == 0) {
-            Point start = cellPositions.get(key(0, 0));
-            playerRenderX = start.x;
-            playerRenderY = start.y;
+        float alpha = 0.24f + (float) (Math.sin(pulse * 2.0) * 0.08 + 0.08);
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+        g2.setStroke(new BasicStroke(6f));
+        g2.setColor(new Color(70, 220, 255));
+        g2.drawLine(sourceLeftX, sourceY, chamber.x - 12, chamber.y - 6);
+        g2.setColor(new Color(255, 120, 180));
+        g2.drawLine(sourceRightX, sourceY, chamber.x + 12, chamber.y - 6);
+        g2.setComposite(AlphaComposite.SrcOver);
+
+        if (chamberFlash > 0) {
+            float flash = (float) Math.min(1.0, chamberFlash);
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, flash * 0.65f));
+            g2.setColor(model.lastCollisionSuccess ? new Color(140, 255, 190) : new Color(255, 110, 110));
+            g2.fill(new Ellipse2D.Double(chamber.x - 70, chamber.y - 70, 140, 140));
+            g2.setComposite(AlphaComposite.SrcOver);
         }
     }
 
     private void drawBoard(Graphics2D g2) {
         for (int r = GameModel.ROWS - 1; r >= 0; r--) {
             for (int c = 0; c <= r; c++) {
-                Point p = cellPositions.get(key(r, c));
-                drawIsometricTile(g2, p.x, p.y, model.board[r][c]);
+                Point p = boardPoints.get(key(r, c));
+                drawTile(g2, p.x, p.y, model.board[r][c]);
             }
-        }
-
-        for (int i = 0; i < model.enemies.size(); i++) {
-            Point p = enemyRender.get(i);
-            drawEnemy(g2, p.x, p.y, i);
         }
 
         drawPlayer(g2, (int) playerRenderX, (int) playerRenderY);
     }
 
-    private void drawIsometricTile(Graphics2D g2, int x, int y, BoardTile tile) {
-        int hw = 44;
-        int hh = 24;
-        int depth = 26;
+    private void drawTile(Graphics2D g2, int x, int y, BoardTile tile) {
+        int hw = 42;
+        int hh = 23;
+        int depth = 24;
 
-        Color top = tileTop(tile.type, tile.visited);
-        Color left = top.darker();
-        Color right = top.brighter();
+        Color top = switch (tile.type) {
+            case INJECTOR -> new Color(65, 195, 255);
+            case MAGNET -> new Color(170, 150, 255);
+            case LUMINOSITY -> new Color(255, 195, 80);
+            case DETECTOR -> new Color(140, 235, 165);
+            case COOLING -> new Color(120, 220, 240);
+            case CHAMBER -> new Color(255, 90, 150);
+        };
+
+        if (tile.visited) top = top.brighter();
 
         Polygon topFace = new Polygon(new int[]{x, x + hw, x, x - hw}, new int[]{y - hh, y, y + hh, y}, 4);
         Polygon leftFace = new Polygon(new int[]{x - hw, x, x, x - hw}, new int[]{y, y + hh, y + hh + depth, y + depth}, 4);
         Polygon rightFace = new Polygon(new int[]{x + hw, x, x, x + hw}, new int[]{y, y + hh, y + hh + depth, y + depth}, 4);
 
-        g2.setColor(left);
+        g2.setColor(top.darker());
         g2.fillPolygon(leftFace);
-        g2.setColor(right);
+        g2.setColor(top.brighter());
         g2.fillPolygon(rightFace);
         g2.setColor(top);
         g2.fillPolygon(topFace);
 
-        g2.setColor(new Color(12, 16, 30));
         g2.setStroke(new BasicStroke(2f));
+        g2.setColor(new Color(14, 16, 30));
         g2.drawPolygon(topFace);
         g2.drawPolygon(leftFace);
         g2.drawPolygon(rightFace);
 
-        if (tile.type == TileType.COLLISION) {
-            float pulse = (float) (0.6 + 0.4 * Math.sin(pulseT * 2 + tile.row + tile.col));
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, pulse * 0.55f));
-            g2.setColor(new Color(255, 150, 230));
-            g2.fill(new Ellipse2D.Double(x - 12, y - 10, 24, 20));
+        if (tile.type == TileType.CHAMBER) {
+            float a = 0.35f + (float) ((Math.sin(pulse * 3 + tile.row) + 1) * 0.22);
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, a));
+            g2.setColor(new Color(255, 180, 220));
+            g2.fillOval(x - 12, y - 10, 24, 20);
             g2.setComposite(AlphaComposite.SrcOver);
         }
     }
 
-    private Color tileTop(TileType type, boolean visited) {
-        Color c = switch (type) {
-            case ENERGY -> new Color(45, 200, 255);
-            case LUMINOSITY -> new Color(255, 190, 60);
-            case CALIBRATION -> new Color(120, 240, 150);
-            case COLLISION -> new Color(255, 70, 130);
-        };
-        return visited ? c.brighter() : c;
-    }
-
     private void drawPlayer(Graphics2D g2, int x, int y) {
-        int bob = (int) (Math.sin(pulseT * 5) * 4);
-        g2.setColor(new Color(250, 145, 45));
-        g2.fillOval(x - 20, y - 65 + bob, 40, 34);
-        g2.setColor(new Color(255, 220, 180));
-        g2.fillOval(x - 12, y - 56 + bob, 24, 18);
+        int bob = (int) (Math.sin(pulse * 5) * 4);
+        g2.setColor(new Color(255, 145, 45));
+        g2.fillOval(x - 18, y - 62 + bob, 36, 30);
+        g2.setColor(new Color(255, 230, 190));
+        g2.fillOval(x - 10, y - 54 + bob, 20, 16);
         g2.setColor(Color.WHITE);
-        g2.fillOval(x - 8, y - 51 + bob, 5, 5);
-        g2.fillOval(x + 3, y - 51 + bob, 5, 5);
-        g2.setColor(new Color(30, 20, 15));
-        g2.fillRect(x - 2, y - 42 + bob, 4, 3);
+        g2.fillOval(x - 7, y - 49 + bob, 4, 4);
+        g2.fillOval(x + 3, y - 49 + bob, 4, 4);
     }
 
-    private void drawEnemy(Graphics2D g2, int x, int y, int index) {
-        int bob = (int) (Math.sin(pulseT * 4 + index) * 5);
-        Color c = switch (index % 3) {
-            case 0 -> new Color(178, 80, 255);
-            case 1 -> new Color(90, 210, 255);
-            default -> new Color(255, 90, 190);
-        };
-        g2.setColor(c);
-        g2.fillOval(x - 16, y - 55 + bob, 32, 28);
-        g2.setColor(new Color(30, 20, 60));
-        g2.drawOval(x - 16, y - 55 + bob, 32, 28);
-        g2.setColor(Color.WHITE);
-        g2.fillOval(x - 8, y - 47 + bob, 5, 5);
-        g2.fillOval(x + 3, y - 47 + bob, 5, 5);
-    }
-
-    private void drawEffects(Graphics2D g2) {
-        for (ParticleFx fx : particleFx) {
+    private void drawParticles(Graphics2D g2) {
+        for (ParticleFx fx : particles) {
             fx.draw(g2);
-        }
-        int y = getHeight() - 74;
-        for (int i = 0; i < floatingTexts.size(); i++) {
-            floatingTexts.get(i).draw(g2, 26, y - i * 22);
         }
     }
 
     private void drawHud(Graphics2D g2) {
         int w = getWidth();
-
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.88f));
-        g2.setColor(new Color(14, 24, 52));
-        g2.fillRoundRect(18, 18, w - 36, 110, 18, 18);
-        g2.setComposite(AlphaComposite.SrcOver);
+        g2.setColor(new Color(13, 22, 45, 225));
+        g2.fillRoundRect(18, 18, w - 36, 138, 16, 16);
 
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("SansSerif", Font.BOLD, 24));
-        g2.drawString("Q*Bert: Collider Run", 30, 48);
+        g2.drawString("Collider Run: Operations Console", 30, 48);
 
-        drawMeter(g2, 30, 62, 250, "Beam Energy", model.beamEnergy / 420.0, new Color(40, 210, 255));
-        drawMeter(g2, 300, 62, 250, "Luminosity", model.luminosity / 200.0, new Color(255, 200, 70));
-        drawMeter(g2, 570, 62, 250, "Calibration", model.calibration / 100.0, new Color(130, 240, 150));
+        meter(g2, 30, 62, 220, "Beam", model.beamEnergy / 450.0, new Color(80, 205, 255));
+        meter(g2, 265, 62, 220, "Focus", model.magnetFocus / 100.0, new Color(170, 150, 255));
+        meter(g2, 500, 62, 220, "Lumi", model.luminosity / 100.0, new Color(255, 205, 90));
+        meter(g2, 735, 62, 220, "Detector", model.detectorCalibration / 100.0, new Color(130, 240, 165));
+        meter(g2, 970, 62, 220, "Heat", model.heat / 120.0, new Color(255, 120, 120));
 
         g2.setFont(new Font("SansSerif", Font.BOLD, 16));
-        g2.setColor(new Color(255, 230, 160));
-        g2.drawString("Score: " + model.score, 30, 118);
-        g2.setColor(new Color(255, 145, 145));
-        g2.drawString("Lives: " + model.lives, 180, 118);
+        g2.setColor(new Color(255, 245, 185));
+        g2.drawString("Target: " + model.currentTarget().label + "  (" + model.currentTarget().thresholdGeV + " GeV)", 30, 128);
+        g2.drawString("Score: " + model.score + "    Lives: " + model.lives, 380, 128);
+        g2.setColor(new Color(200, 225, 255));
+        g2.drawString("Move: Q/W/A/S or arrows   Fire collision: SPACE   Pause: P", 640, 128);
 
-        g2.setColor(new Color(230, 245, 255));
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        g2.drawString("Controls: Q/W/A/S or arrows | P pause | R restart", 300, 118);
-
-        drawDiscoveryBoard(g2);
+        drawDiscoveryList(g2);
         drawEventLog(g2);
     }
 
-    private void drawMeter(Graphics2D g2, int x, int y, int w, String label, double value, Color fill) {
-        g2.setColor(new Color(90, 110, 150));
-        g2.drawString(label + " " + (int) (value * 100) + "%", x, y);
+    private void meter(Graphics2D g2, int x, int y, int w, String label, double v, Color c) {
+        g2.setColor(new Color(180, 200, 235));
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        g2.drawString(label, x, y);
 
-        g2.setColor(new Color(22, 30, 48));
-        g2.fillRoundRect(x, y + 6, w, 16, 12, 12);
-
-        int fw = (int) (Math.max(0, Math.min(1, value)) * w);
-        g2.setPaint(new GradientPaint(x, y, fill.darker(), x + fw, y + 10, fill));
-        g2.fillRoundRect(x, y + 6, fw, 16, 12, 12);
-        g2.setColor(new Color(12, 16, 34));
-        g2.drawRoundRect(x, y + 6, w, 16, 12, 12);
+        g2.setColor(new Color(20, 27, 45));
+        g2.fillRoundRect(x, y + 6, w, 14, 10, 10);
+        int fw = (int) (Math.max(0, Math.min(1, v)) * w);
+        g2.setPaint(new GradientPaint(x, y, c.darker(), x + fw, y, c));
+        g2.fillRoundRect(x, y + 6, fw, 14, 10, 10);
+        g2.setColor(new Color(8, 14, 30));
+        g2.drawRoundRect(x, y + 6, w, 14, 10, 10);
     }
 
-    private void drawDiscoveryBoard(Graphics2D g2) {
-        int x = getWidth() - 300;
-        int y = 145;
-        g2.setColor(new Color(14, 22, 42, 230));
-        g2.fillRoundRect(x, y, 270, 180, 14, 14);
-
+    private void drawDiscoveryList(Graphics2D g2) {
+        int x = getWidth() - 290;
+        int y = 170;
+        g2.setColor(new Color(14, 22, 42, 220));
+        g2.fillRoundRect(x, y, 260, 180, 14, 14);
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("SansSerif", Font.BOLD, 16));
-        g2.drawString("Discovery Board", x + 12, y + 24);
+        g2.drawString("Validated Signatures", x + 12, y + 24);
 
         g2.setFont(new Font("Monospaced", Font.PLAIN, 13));
         int ty = y + 46;
         for (ParticleType p : ParticleType.values()) {
             boolean found = model.discoveries.contains(p);
-            g2.setColor(found ? new Color(130, 255, 140) : new Color(140, 150, 180));
+            g2.setColor(found ? new Color(130, 255, 150) : new Color(130, 140, 170));
             g2.drawString((found ? "✓ " : "• ") + p.label + "  " + p.thresholdGeV + " GeV", x + 12, ty);
-            ty += 20;
+            ty += 19;
         }
     }
 
     private void drawEventLog(Graphics2D g2) {
         int x = 18;
         int y = getHeight() - 56;
-        g2.setColor(new Color(14, 22, 42, 220));
-        g2.fillRoundRect(x, y, getWidth() - 36, 38, 12, 12);
-        g2.setColor(new Color(220, 240, 255));
+        g2.setColor(new Color(12, 20, 40, 220));
+        g2.fillRoundRect(x, y, getWidth() - 36, 38, 10, 10);
+        g2.setColor(new Color(225, 240, 255));
         g2.setFont(new Font("Monospaced", Font.PLAIN, 13));
         g2.drawString(model.eventLog, x + 10, y + 24);
     }
 
-    private void drawTitleOverlay(Graphics2D g2) {
-        drawOverlayBackdrop(g2);
+    private void drawTitle(Graphics2D g2) {
+        overlay(g2);
         g2.setColor(Color.WHITE);
-        g2.setFont(new Font("SansSerif", Font.BOLD, 48));
-        g2.drawString("Q*Bert: Collider Run", getWidth() / 2 - 250, getHeight() / 2 - 80);
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 20));
-        g2.drawString("Tune energy, luminosity, and calibration to discover heavier particles.", getWidth() / 2 - 320, getHeight() / 2 - 34);
-        g2.drawString("Press ENTER to start", getWidth() / 2 - 95, getHeight() / 2 + 18);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 46));
+        g2.drawString("Q*Bert: Collider Run", getWidth() / 2 - 245, getHeight() / 2 - 70);
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 21));
+        g2.drawString("This is a collider operations game: tune modules, then fire collisions from the chamber.", getWidth() / 2 - 430, getHeight() / 2 - 20);
+        g2.drawString("Hit target signatures in order from μ+μ- to t t̄.", getWidth() / 2 - 205, getHeight() / 2 + 12);
+        g2.drawString("Press ENTER to start.", getWidth() / 2 - 110, getHeight() / 2 + 50);
     }
 
-    private void drawPauseOverlay(Graphics2D g2) {
-        drawOverlayBackdrop(g2);
-        g2.setColor(new Color(240, 250, 255));
-        g2.setFont(new Font("SansSerif", Font.BOLD, 42));
-        g2.drawString("Paused", getWidth() / 2 - 80, getHeight() / 2 - 10);
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 20));
-        g2.drawString("Press P to continue", getWidth() / 2 - 100, getHeight() / 2 + 30);
-    }
-
-    private void drawEndOverlay(Graphics2D g2) {
-        drawOverlayBackdrop(g2);
+    private void drawPause(Graphics2D g2) {
+        overlay(g2);
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("SansSerif", Font.BOLD, 44));
-        g2.drawString(model.victory ? "Discovery Complete!" : "Run Failed", getWidth() / 2 - 185, getHeight() / 2 - 32);
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 24));
-        g2.drawString("Final Score: " + model.score, getWidth() / 2 - 80, getHeight() / 2 + 8);
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 18));
-        g2.drawString("Press ENTER or R to start a new run", getWidth() / 2 - 150, getHeight() / 2 + 42);
+        g2.drawString("Paused", getWidth() / 2 - 84, getHeight() / 2 - 10);
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 20));
+        g2.drawString("Press P to resume", getWidth() / 2 - 90, getHeight() / 2 + 24);
     }
 
-    private void drawOverlayBackdrop(Graphics2D g2) {
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.7f));
+    private void drawEnd(Graphics2D g2) {
+        overlay(g2);
+        g2.setColor(Color.WHITE);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 44));
+        g2.drawString(model.victory ? "Campaign Complete" : "Run Failed", getWidth() / 2 - 185, getHeight() / 2 - 24);
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 24));
+        g2.drawString("Final Score: " + model.score, getWidth() / 2 - 85, getHeight() / 2 + 14);
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 18));
+        g2.drawString("Press ENTER or R to restart", getWidth() / 2 - 120, getHeight() / 2 + 46);
+    }
+
+    private void overlay(Graphics2D g2) {
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.72f));
         g2.setColor(new Color(4, 8, 20));
         g2.fillRect(0, 0, getWidth(), getHeight());
         g2.setComposite(AlphaComposite.SrcOver);
-
-        float radius = Math.max(getWidth(), getHeight()) * 0.55f;
-        RadialGradientPaint glow = new RadialGradientPaint(
-                getWidth() / 2f,
-                getHeight() / 2f,
-                radius,
-                new float[]{0f, 1f},
-                new Color[]{new Color(90, 120, 255, 120), new Color(0, 0, 0, 0)}
-        );
-        g2.setPaint(glow);
-        g2.fillRect(0, 0, getWidth(), getHeight());
     }
 
-    private void spawnBurst(int count, Color color) {
-        Point p = cellPositions.get(key(model.player.row, model.player.col));
-        int px = p != null ? p.x : getWidth() / 2;
-        int py = p != null ? p.y - 45 : getHeight() / 2;
+    private void spawnCollisionParticles(int count) {
+        Point chamber = boardPoints.get(key(GameModel.ROWS - 1, GameModel.ROWS / 2));
+        if (chamber == null) return;
+        Color color = model.lastCollisionSuccess ? new Color(140, 255, 190) : new Color(255, 120, 120);
         for (int i = 0; i < count; i++) {
-            particleFx.add(new ParticleFx(px, py, color));
+            particles.add(new ParticleFx(chamber.x, chamber.y, color));
         }
     }
 
@@ -504,50 +417,25 @@ public class GamePanel extends JPanel {
             this.y = y;
             this.color = color;
             double angle = random.nextDouble() * Math.PI * 2;
-            double speed = 0.06 + random.nextDouble() * 0.28;
+            double speed = 0.08 + random.nextDouble() * 0.35;
             vx = Math.cos(angle) * speed;
-            vy = Math.sin(angle) * speed - 0.08;
-            life = 420 + random.nextInt(260);
+            vy = Math.sin(angle) * speed - 0.1;
+            life = 540 + random.nextInt(320);
         }
 
         boolean step(long dt) {
             x += vx * dt;
             y += vy * dt;
-            vy += 0.00025 * dt;
+            vy += 0.00024 * dt;
             life -= dt;
             return life > 0;
         }
 
         void draw(Graphics2D g2) {
-            float alpha = (float) Math.max(0, life / 700.0);
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+            float a = (float) Math.max(0, life / 900.0);
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, a));
             g2.setColor(color);
             g2.fill(new Ellipse2D.Double(x, y, 4, 4));
-            g2.setComposite(AlphaComposite.SrcOver);
-        }
-    }
-
-    private static class FloatingText {
-        String label;
-        Color color;
-        double life = 1200;
-
-        FloatingText(String label, Color color) {
-            this.label = label;
-            this.color = color;
-        }
-
-        boolean step(long dt) {
-            life -= dt;
-            return life > 0;
-        }
-
-        void draw(Graphics2D g2, int x, int y) {
-            float alpha = (float) Math.max(0.15, life / 1200.0);
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
-            g2.setColor(color);
-            g2.setFont(new Font("SansSerif", Font.BOLD, 14));
-            g2.drawString(label, x, y);
             g2.setComposite(AlphaComposite.SrcOver);
         }
     }

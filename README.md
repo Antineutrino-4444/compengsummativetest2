@@ -1,38 +1,35 @@
 # Q*Bert: Collider Run (Java)
 
-A polished arcade-style Java game inspired by Q*Bert and collider physics.
+A polished Java arcade game where you run a particle-collider campaign by stepping across an isometric operations lattice.
 
-## Highlights
-- Isometric stepped collider board with shaded cubes and animated effects.
-- Multiple screen states: title, pause, gameplay, end-of-run overlay.
-- Smooth interpolation for player/enemy motion and collision burst particles.
-- Three collider tuning systems:
-  - **Beam energy**
-  - **Luminosity**
-  - **Detector calibration**
-- Collision tiles produce event outcomes using:
-  - random parton energy fraction,
-  - calibration modifier,
-  - weighted rarity,
-  - threshold-gated particle unlocks.
-- Discovery board with threshold-inspired progression:
-  - μ+μ-, K+K-, p p̄, Z, Higgs, W+W-, t t̄
-- Score, lives, event log, enemies, and fail/victory states.
+## Core Loop (now explicit)
+1. Move across module tiles to tune machine parameters.
+2. Build a good collider state: energy, magnet focus, luminosity, detector calibration, and heat control.
+3. Reach the **collision chamber** tile.
+4. Press **SPACE** to fire a proton-proton collision event.
+5. Validate target signatures in increasing mass order (μ+μ- → t t̄).
+
+## Tile Systems
+- **Injector**: raises beam energy quickly but adds heat.
+- **Magnet**: improves beam focus.
+- **Luminosity**: raises event rate.
+- **Detector**: improves calibration quality.
+- **Cooling**: drops heat and stabilizes operation.
+- **Chamber**: required tile for firing collisions.
+
+## Win / Lose
+- Win by completing all target signatures in sequence.
+- Lose if lives run out (bad collisions / quenches).
 
 ## Controls
-- `Enter` = start from title / restart from end screen
-- `Q`/`W`/`A`/`S` = isometric hops
-- Arrow keys = alternate movement controls
-- `P` = pause/unpause
-- `R` = restart run
+- `Enter` = start/restart from title/end
+- `Q`/`W`/`A`/`S` or arrows = move on the lattice
+- `Space` = trigger collision (only works on chamber tile)
+- `P` = pause
+- `R` = reset run
 
 ## Run
 ```bash
 javac -d out src/colliderrun/*.java
 java -cp out colliderrun.Main
 ```
-
-## Design Notes
-- The pyramid acts as a discrete energy landscape.
-- Heavier signatures require higher effective collision energy.
-- Collision outcome quality depends on setup + stochastic parton fraction.
