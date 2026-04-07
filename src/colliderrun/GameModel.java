@@ -24,6 +24,10 @@ public class GameModel {
     public boolean gameOver;
     public boolean victory;
     public String eventLog = "Tune the beamline and trigger a discovery.";
+    public boolean lastCollisionTriggered;
+    public boolean lastCollisionSuccess;
+    public double lastPartonFraction;
+    public double lastEffectiveEnergy;
 
     private long enemyMoveAccumulatorMs;
 
@@ -36,6 +40,7 @@ public class GameModel {
         if (gameOver || victory) {
             return;
         }
+        lastCollisionTriggered = false;
         beamEnergy = clamp(beamEnergy - 0.004 * deltaMs, 0, 420);
         luminosity = clamp(luminosity - 0.003 * deltaMs, 0, 200);
         calibration = clamp(calibration - 0.002 * deltaMs, 0, 100);
@@ -93,6 +98,10 @@ public class GameModel {
             case COLLISION -> {
                 CollisionOutcome outcome = collisionEngine.trigger(beamEnergy, calibration, luminosity);
                 score += outcome.scoreDelta();
+                lastCollisionTriggered = true;
+                lastCollisionSuccess = outcome.valid();
+                lastPartonFraction = outcome.partonFraction();
+                lastEffectiveEnergy = outcome.effectiveEnergy();
                 if (outcome.valid() && outcome.particle() != null) {
                     discoveries.add(outcome.particle());
                 } else {
@@ -160,6 +169,7 @@ public class GameModel {
         discoveries.clear();
         player.row = 0;
         player.col = 0;
+        lastCollisionTriggered = false;
         resetBoard();
         spawnEnemies();
     }

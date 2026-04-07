@@ -2,23 +2,29 @@
 
 A polished arcade-style Java game inspired by Q*Bert and collider physics.
 
-## Features
-- Stepped pyramid board where each hop changes collider settings.
-- Three tunable systems:
+## Highlights
+- Isometric stepped collider board with shaded cubes and animated effects.
+- Multiple screen states: title, pause, gameplay, end-of-run overlay.
+- Smooth interpolation for player/enemy motion and collision burst particles.
+- Three collider tuning systems:
   - **Beam energy**
   - **Luminosity**
   - **Detector calibration**
-- Collision tiles that produce physics events via a parton-fraction mechanic.
-- Discovery board with real threshold-inspired unlock progression:
+- Collision tiles produce event outcomes using:
+  - random parton energy fraction,
+  - calibration modifier,
+  - weighted rarity,
+  - threshold-gated particle unlocks.
+- Discovery board with threshold-inspired progression:
   - μ+μ-, K+K-, p p̄, Z, Higgs, W+W-, t t̄
-- Score, lives, run fail/victory states, enemy hazards, restart flow.
+- Score, lives, event log, enemies, and fail/victory states.
 
 ## Controls
-- `Q` = up-left
-- `W` = up-right
-- `A` = down-left
-- `S` = down-right
-- `R` = reset run
+- `Enter` = start from title / restart from end screen
+- `Q`/`W`/`A`/`S` = isometric hops
+- Arrow keys = alternate movement controls
+- `P` = pause/unpause
+- `R` = restart run
 
 ## Run
 ```bash
@@ -27,6 +33,6 @@ java -cp out colliderrun.Main
 ```
 
 ## Design Notes
-- The board maps to energy-state progression naturally.
-- Collision outcomes depend on beam setup + random parton fraction.
+- The pyramid acts as a discrete energy landscape.
 - Heavier signatures require higher effective collision energy.
+- Collision outcome quality depends on setup + stochastic parton fraction.

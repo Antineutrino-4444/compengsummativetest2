@@ -8,7 +8,7 @@ public class Main {
         SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame("Q*Bert: Collider Run");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            frame.setSize(980, 760);
+            frame.setSize(1280, 860);
             frame.setLocationRelativeTo(null);
             frame.setContentPane(new GamePanel());
             frame.setVisible(true);
