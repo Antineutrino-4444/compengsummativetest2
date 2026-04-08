@@ -1,33 +1,24 @@
 # Qbert Collider Run (Java)
 
-A Java arcade game with three clearly separated stages per collision attempt.
-
-## Gameplay Stages
-1. **Station Grid (re-imagined Qbert part)**
-   - Move across stations to tune Beam, Focus, Luminosity, Detector, and Heat.
-   - Reach the **CHAMBER** station.
-2. **Tunnel Run (major gameplay stage)**
-   - Press **Space** at CHAMBER to start a long beam-tunnel run.
-   - Steer with **A/D** or **Left/Right** through many gates.
-   - Gate performance determines collision quality.
-3. **Detector Replay**
-   - After each collision, animated detector tracks are shown in a replay overlay.
-   - Replay intensity reflects event quality/particle outcome.
-
-## Goal
-Complete target particles in order while managing lives and machine state.
+## Core Loop
+1. **Platform Stage (QEAD controls):** step on platforms to tune collider systems and avoid enemy drones.
+2. **Tunnel Stage:** press Space on CHAMBER, then steer beam packet with A/D.
+3. **Detector Replay Stage:** view generated tracks and hover over tracks/detector layers for details.
 
 ## Controls
-- Enter: start/restart
-- Q/W/A/S or arrows: move on station grid
-- Space: start tunnel run from CHAMBER
-- A/D or Left/Right in tunnel: steer beam packet
-- P: pause
-- R: reset
+- `Q` = up-left platform jump
+- `E` = up-right platform jump
+- `A` = down-left platform jump (or steer left in tunnel)
+- `D` = down-right platform jump (or steer right in tunnel)
+- `Space` = start tunnel run from CHAMBER
+- `P` = pause
+- `R` = reset
+- `Enter` = start/restart from title/end
 
-## Window Support
-- Designed for **1100x760 or larger**.
-- The app enforces a minimum size and shows a warning if smaller.
+## Notes
+- Enemy drones roam the platform stage and cost lives on contact.
+- Detector build quality (tracker/calo/muon) is improved via detector platforms and affects event quality.
+- Window size is fixed by the app (`1280x860`, non-resizable) to prevent clipping.
 
 ## Run
 ```bash

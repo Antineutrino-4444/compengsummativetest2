@@ -15,6 +15,8 @@ import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.awt.geom.Ellipse2D;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,9 +41,9 @@ public class GamePanel extends JPanel {
 
     private double playerRenderX;
     private double playerRenderY;
+    private final List<Point> enemyRender = new ArrayList<>();
     private double chamberFlash;
 
-    // stage 2 tunnel minigame (major component)
     private boolean tunnelActive;
     private double tunnelX;
     private double tunnelVelocity;
@@ -52,14 +54,17 @@ public class GamePanel extends JPanel {
     private double gateWidth;
     private double tunnelTick;
 
-    // detector replay animation after collision
     private boolean detectorReplayActive;
     private double detectorReplayMs;
+    private int mouseX;
+    private int mouseY;
+    private String hoverInfo;
 
     public GamePanel() {
         setBackground(new Color(7, 10, 20));
         setFocusable(true);
         setupInput();
+        setupMouseHover();
 
         timer = new Timer(16, this::onFrame);
         timer.start();
@@ -86,27 +91,36 @@ public class GamePanel extends JPanel {
                     }
                     case KeyEvent.VK_SPACE -> {
                         if (state == ScreenState.PLAYING && !tunnelActive && !detectorReplayActive) {
-                            if (model.beginCollisionSequence()) {
-                                startTunnelPhase();
-                            }
+                            if (model.beginCollisionSequence()) startTunnelPhase();
                         }
                     }
-                    case KeyEvent.VK_A, KeyEvent.VK_LEFT -> {
+                    // QEAD controls requested
+                    case KeyEvent.VK_Q -> {
+                        if (!tunnelActive && state == ScreenState.PLAYING && !detectorReplayActive) model.movePlayer(-1, -1);
+                    }
+                    case KeyEvent.VK_E -> {
+                        if (!tunnelActive && state == ScreenState.PLAYING && !detectorReplayActive) model.movePlayer(-1, 0);
+                    }
+                    case KeyEvent.VK_A -> {
                         if (tunnelActive) tunnelVelocity -= 0.08;
                         else if (state == ScreenState.PLAYING && !detectorReplayActive) model.movePlayer(1, 0);
                     }
-                    case KeyEvent.VK_D, KeyEvent.VK_RIGHT -> {
+                    case KeyEvent.VK_D -> {
                         if (tunnelActive) tunnelVelocity += 0.08;
                         else if (state == ScreenState.PLAYING && !detectorReplayActive) model.movePlayer(1, 1);
                     }
-                    case KeyEvent.VK_Q, KeyEvent.VK_NUMPAD7 -> {
-                        if (!tunnelActive && state == ScreenState.PLAYING && !detectorReplayActive) model.movePlayer(-1, -1);
-                    }
-                    case KeyEvent.VK_W, KeyEvent.VK_NUMPAD9, KeyEvent.VK_UP -> {
-                        if (!tunnelActive && state == ScreenState.PLAYING && !detectorReplayActive) model.movePlayer(-1, 0);
-                    }
                 }
                 repaint();
+            }
+        });
+    }
+
+    private void setupMouseHover() {
+        addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                mouseX = e.getX();
+                mouseY = e.getY();
             }
         });
     }
@@ -118,6 +132,7 @@ public class GamePanel extends JPanel {
         tunnelActive = false;
         detectorReplayActive = false;
         chamberFlash = 0;
+        hoverInfo = null;
     }
 
     private void onFrame(ActionEvent ignored) {
@@ -127,16 +142,10 @@ public class GamePanel extends JPanel {
         pulse += dt * 0.002;
 
         if (state == ScreenState.PLAYING) {
-            if (tunnelActive) {
-                tickTunnel(dt);
-            } else {
-                model.tick(dt);
-            }
+            if (tunnelActive) tickTunnel(dt);
+            else model.tick(dt);
 
-            if (detectorReplayActive) {
-                tickDetectorReplay(dt);
-            }
-
+            if (detectorReplayActive) tickDetectorReplay(dt);
             if (model.gameOver || model.victory) {
                 state = ScreenState.END;
                 tunnelActive = false;
@@ -155,7 +164,7 @@ public class GamePanel extends JPanel {
         tunnelVelocity = 0;
         tunnelStep = 0;
         tunnelHits = 0;
-        tunnelMaxSteps = 22; // easier but major and longer
+        tunnelMaxSteps = 22;
         gateCenter = 0.5;
         gateWidth = 0.30;
         tunnelTick = 0;
@@ -177,13 +186,9 @@ public class GamePanel extends JPanel {
             } else {
                 spawnTunnelSpark(new Color(255, 120, 120));
             }
-
             gateCenter = 0.15 + random.nextDouble() * 0.70;
             gateWidth = Math.max(0.16, 0.30 - tunnelStep * 0.005);
-
-            if (tunnelStep >= tunnelMaxSteps) {
-                finishTunnelPhase();
-            }
+            if (tunnelStep >= tunnelMaxSteps) finishTunnelPhase();
         }
     }
 
@@ -202,27 +207,22 @@ public class GamePanel extends JPanel {
         detectorReplayMs = 0;
         detectorTracks.clear();
 
-        int trackCount = 10;
-        if (model.lastParticle != null) {
-            trackCount = 14 + model.lastParticle.ordinal() * 2;
-        }
-
-        for (int i = 0; i < trackCount; i++) {
-            detectorTracks.add(new Track());
-        }
+        int trackCount = 12;
+        if (model.lastParticle != null) trackCount = 16 + model.lastParticle.ordinal() * 2;
+        for (int i = 0; i < trackCount; i++) detectorTracks.add(new Track(i));
     }
 
     private void tickDetectorReplay(long dt) {
         detectorReplayMs += dt;
-        if (detectorReplayMs > 3600) {
+        if (detectorReplayMs > 4200) {
             detectorReplayActive = false;
             detectorTracks.clear();
+            hoverInfo = null;
         }
     }
 
     private void updateLayout() {
         boardPoints.clear();
-
         int safeTop = 180;
         int safeBottom = getHeight() - 90;
         int usableHeight = Math.max(260, safeBottom - safeTop);
@@ -245,6 +245,8 @@ public class GamePanel extends JPanel {
             playerRenderX = p.x;
             playerRenderY = p.y;
         }
+
+        while (enemyRender.size() < model.enemies.size()) enemyRender.add(new Point(centerX, topY));
     }
 
     private void animate(long dt) {
@@ -252,6 +254,13 @@ public class GamePanel extends JPanel {
         if (p != null) {
             playerRenderX = lerp(playerRenderX, p.x, 0.26);
             playerRenderY = lerp(playerRenderY, p.y, 0.26);
+        }
+        for (int i = 0; i < model.enemies.size(); i++) {
+            Actor e = model.enemies.get(i);
+            Point tp = boardPoints.get(key(e.row, e.col));
+            Point rp = enemyRender.get(i);
+            rp.x = (int) lerp(rp.x, tp.x, 0.2);
+            rp.y = (int) lerp(rp.y, tp.y, 0.2);
         }
         chamberFlash = Math.max(0, chamberFlash - dt / 500.0);
         particles.removeIf(px -> !px.step(dt));
@@ -275,9 +284,7 @@ public class GamePanel extends JPanel {
         if (state == ScreenState.PAUSED) drawPause(g2);
         if (state == ScreenState.END) drawEnd(g2);
 
-        if (getWidth() < 1100 || getHeight() < 760) {
-            drawSizeWarning(g2);
-        }
+        if (getWidth() < 1100 || getHeight() < 760) drawSizeWarning(g2);
 
         g2.dispose();
     }
@@ -287,13 +294,6 @@ public class GamePanel extends JPanel {
         int h = getHeight();
         g2.setPaint(new GradientPaint(0, 0, new Color(9, 12, 28), 0, h, new Color(4, 6, 12)));
         g2.fillRect(0, 0, w, h);
-
-        g2.setColor(new Color(90, 120, 180, 40));
-        for (int i = 0; i < 120; i++) {
-            int x = (i * 73) % Math.max(w, 1);
-            int y = (i * 43 + 21) % Math.max(h, 1);
-            g2.fillOval(x, y, 2, 2);
-        }
     }
 
     private void drawBoard(Graphics2D g2) {
@@ -303,6 +303,7 @@ public class GamePanel extends JPanel {
                 drawTile(g2, p.x, p.y, model.board[r][c]);
             }
         }
+        for (Point p : enemyRender) drawEnemy(g2, p.x, p.y);
         drawPlayer(g2, (int) playerRenderX, (int) playerRenderY);
     }
 
@@ -354,34 +355,45 @@ public class GamePanel extends JPanel {
         g2.fillOval(x + 2, y - 45 + bob, 4, 4);
     }
 
+    private void drawEnemy(Graphics2D g2, int x, int y) {
+        g2.setColor(new Color(255, 80, 120));
+        g2.fillOval(x - 12, y - 48, 24, 20);
+        g2.setColor(Color.WHITE);
+        g2.fillOval(x - 5, y - 42, 3, 3);
+        g2.fillOval(x + 2, y - 42, 3, 3);
+    }
+
     private void drawHud(Graphics2D g2) {
         int w = getWidth();
         g2.setColor(new Color(13, 22, 45, 230));
-        g2.fillRoundRect(14, 14, w - 28, 146, 16, 16);
+        g2.fillRoundRect(14, 14, w - 28, 162, 16, 16);
 
         g2.setColor(Color.WHITE);
-        g2.setFont(new Font("SansSerif", Font.BOLD, 22));
-        g2.drawString("Collider Run Console", 26, 42);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 21));
+        g2.drawString("Collider Run Console", 26, 40);
 
-        meter(g2, 26, 54, 160, "Beam", model.beamEnergy / 450.0, new Color(80, 205, 255));
-        meter(g2, 196, 54, 160, "Focus", model.magnetFocus / 100.0, new Color(170, 150, 255));
-        meter(g2, 366, 54, 160, "Lumi", model.luminosity / 100.0, new Color(255, 205, 90));
-        meter(g2, 536, 54, 160, "Detector", model.detectorCalibration / 100.0, new Color(130, 240, 165));
-        meter(g2, 706, 54, 160, "Heat", model.heat / 120.0, new Color(255, 120, 120));
+        meter(g2, 26, 50, 145, "Beam", model.beamEnergy / 450.0, new Color(80, 205, 255));
+        meter(g2, 178, 50, 145, "Focus", model.magnetFocus / 100.0, new Color(170, 150, 255));
+        meter(g2, 330, 50, 145, "Lumi", model.luminosity / 100.0, new Color(255, 205, 90));
+        meter(g2, 482, 50, 145, "Detector", model.detectorCalibration / 100.0, new Color(130, 240, 165));
+        meter(g2, 634, 50, 145, "Heat", model.heat / 120.0, new Color(255, 120, 120));
+
+        meter(g2, 800, 50, 115, "Tracker", model.trackerBuild / 100.0, new Color(120, 220, 255));
+        meter(g2, 922, 50, 115, "Calo", model.calorimeterBuild / 100.0, new Color(255, 170, 120));
+        meter(g2, 1044, 50, 115, "Muon", model.muonBuild / 100.0, new Color(180, 255, 160));
 
         g2.setFont(new Font("SansSerif", Font.BOLD, 14));
         g2.setColor(new Color(250, 235, 170));
-        g2.drawString("Target: " + model.currentTarget().label + "   Score: " + model.score + "   Lives: " + model.lives, 26, 120);
+        g2.drawString("Target: " + model.currentTarget().label + " | Score: " + model.score + " | Lives: " + model.lives, 26, 138);
         g2.setColor(new Color(205, 225, 255));
-        g2.drawString("Objective: tune stations -> reach CHAMBER -> SPACE -> tunnel run -> detector replay", 26, 142);
+        g2.drawString("Stage 1: QEAD move on platforms and avoid enemies. Stage 2: SPACE at CHAMBER. Stage 3: detector replay (hover details).", 26, 160);
 
         drawDiscoveryList(g2);
         drawEventLog(g2);
     }
 
     private void drawTunnelOverlay(Graphics2D g2) {
-        int w = getWidth();
-        int h = getHeight();
+        int w = getWidth(), h = getHeight();
         g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.85f));
         g2.setColor(new Color(5, 10, 24));
         g2.fillRect(0, 0, w, h);
@@ -399,7 +411,6 @@ public class GamePanel extends JPanel {
         g2.drawRoundRect(tx, ty, tunnelW, tunnelH, 20, 20);
 
         int laneY = ty + tunnelH / 2;
-        g2.setColor(new Color(80, 100, 170));
         g2.drawLine(tx + 40, laneY, tx + tunnelW - 40, laneY);
 
         int gateX = tx + 40 + (int) ((tunnelW - 80) * gateCenter);
@@ -415,30 +426,30 @@ public class GamePanel extends JPanel {
         g2.setFont(new Font("SansSerif", Font.BOLD, 24));
         g2.drawString("Stage 2: Tunnel Run", tx + 20, ty + 36);
         g2.setFont(new Font("SansSerif", Font.PLAIN, 16));
-        g2.drawString("Steer beam with A/D or Left/Right. Missing gates is allowed; quality just drops.", tx + 20, ty + 62);
-        g2.drawString("Hits: " + tunnelHits + " / " + tunnelMaxSteps + "   Step: " + tunnelStep + " / " + tunnelMaxSteps, tx + 20, ty + 86);
+        g2.drawString("Use A/D to steer. Longer run, forgiving gates.", tx + 20, ty + 62);
+        g2.drawString("Hits: " + tunnelHits + " / " + tunnelMaxSteps + "  Step: " + tunnelStep + " / " + tunnelMaxSteps, tx + 20, ty + 86);
     }
 
     private void drawDetectorReplay(Graphics2D g2) {
-        int w = getWidth();
-        int h = getHeight();
-        int cx = w / 2;
-        int cy = h / 2 + 20;
+        int w = getWidth(), h = getHeight();
+        int cx = w / 2, cy = h / 2 + 20;
 
         g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.72f));
         g2.setColor(new Color(3, 6, 16));
         g2.fillRect(0, 0, w, h);
         g2.setComposite(AlphaComposite.SrcOver);
 
-        g2.setColor(new Color(120, 150, 200));
-        g2.setStroke(new BasicStroke(2f));
-        for (int r = 70; r <= 260; r += 38) {
-            g2.drawOval(cx - r, cy - r, r * 2, r * 2);
-        }
+        hoverInfo = null;
+        drawDetectorLayer(g2, cx, cy, 70, "Tracker", model.trackerBuild);
+        drawDetectorLayer(g2, cx, cy, 120, "Calorimeter", model.calorimeterBuild);
+        drawDetectorLayer(g2, cx, cy, 175, "Muon System", model.muonBuild);
 
-        double progress = Math.min(1.0, detectorReplayMs / 2800.0);
+        double progress = Math.min(1.0, detectorReplayMs / 3000.0);
         for (Track t : detectorTracks) {
             t.draw(g2, cx, cy, progress);
+            if (t.hitTest(cx, cy, progress, mouseX, mouseY)) {
+                hoverInfo = t.info;
+            }
         }
 
         g2.setColor(Color.WHITE);
@@ -446,26 +457,52 @@ public class GamePanel extends JPanel {
         g2.drawString("Stage 3: Detector Event Replay", cx - 190, 80);
         g2.setFont(new Font("SansSerif", Font.PLAIN, 16));
         String label = model.lastParticle == null ? "No clear heavy signature" : model.lastParticle.label;
-        g2.drawString("Event: " + label + "   Effective Energy: " + String.format("%.1f", model.lastEffectiveEnergy) + " GeV", cx - 210, 106);
+        g2.drawString("Event: " + label + "  Effective Energy: " + String.format("%.1f", model.lastEffectiveEnergy) + " GeV", cx - 220, 106);
+
+        if (hoverInfo != null) {
+            drawHoverBox(g2, hoverInfo, mouseX, mouseY);
+        }
+    }
+
+    private void drawDetectorLayer(Graphics2D g2, int cx, int cy, int r, String name, double build) {
+        g2.setColor(new Color(120, 150, 200));
+        g2.setStroke(new BasicStroke(2f));
+        g2.drawOval(cx - r, cy - r, r * 2, r * 2);
+
+        double dist = Math.hypot(mouseX - cx, mouseY - cy);
+        if (Math.abs(dist - r) < 8) {
+            hoverInfo = name + " build quality: " + String.format("%.0f", build) + "%";
+        }
+    }
+
+    private void drawHoverBox(Graphics2D g2, String text, int x, int y) {
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        int tw = g2.getFontMetrics().stringWidth(text) + 16;
+        int th = 24;
+        int bx = Math.min(getWidth() - tw - 8, x + 12);
+        int by = Math.max(8, y - 28);
+        g2.setColor(new Color(15, 24, 48, 235));
+        g2.fillRoundRect(bx, by, tw, th, 8, 8);
+        g2.setColor(Color.WHITE);
+        g2.drawRoundRect(bx, by, tw, th, 8, 8);
+        g2.drawString(text, bx + 8, by + 16);
     }
 
     private void meter(Graphics2D g2, int x, int y, int w, String label, double v, Color c) {
         g2.setColor(new Color(180, 200, 235));
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 12));
         g2.drawString(label, x, y);
-
         g2.setColor(new Color(20, 27, 45));
-        g2.fillRoundRect(x, y + 6, w, 14, 10, 10);
+        g2.fillRoundRect(x, y + 4, w, 12, 8, 8);
         int fw = (int) (Math.max(0, Math.min(1, v)) * w);
         g2.setPaint(new GradientPaint(x, y, c.darker(), x + fw, y, c));
-        g2.fillRoundRect(x, y + 6, fw, 14, 10, 10);
+        g2.fillRoundRect(x, y + 4, fw, 12, 8, 8);
         g2.setColor(new Color(8, 14, 30));
-        g2.drawRoundRect(x, y + 6, w, 14, 10, 10);
+        g2.drawRoundRect(x, y + 4, w, 12, 8, 8);
     }
 
     private void drawDiscoveryList(Graphics2D g2) {
-        int x = Math.max(20, getWidth() - 300);
-        int y = 170;
+        int x = Math.max(20, getWidth() - 300), y = 184;
         g2.setColor(new Color(14, 22, 42, 220));
         g2.fillRoundRect(x, y, 280, 186, 14, 14);
         g2.setColor(Color.WHITE);
@@ -483,9 +520,7 @@ public class GamePanel extends JPanel {
     }
 
     private void drawEventLog(Graphics2D g2) {
-        int x = 14;
-        int y = getHeight() - 54;
-        int w = getWidth() - 28;
+        int x = 14, y = getHeight() - 54, w = getWidth() - 28;
         g2.setColor(new Color(12, 20, 40, 225));
         g2.fillRoundRect(x, y, w, 38, 10, 10);
         g2.setColor(new Color(225, 240, 255));
@@ -495,16 +530,15 @@ public class GamePanel extends JPanel {
 
     private void drawTitle(Graphics2D g2) {
         overlay(g2);
-        int cx = getWidth() / 2;
-        int cy = getHeight() / 2;
+        int cx = getWidth() / 2, cy = getHeight() / 2;
         g2.setColor(Color.WHITE);
-        g2.setFont(new Font("SansSerif", Font.BOLD, 44));
-        g2.drawString("Qbert Collider Run", cx - 210, cy - 90);
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 20));
-        g2.drawString("Stage 1: Tune station grid", cx - 140, cy - 34);
-        g2.drawString("Stage 2: Tunnel run controls collision quality", cx - 220, cy - 6);
-        g2.drawString("Stage 3: Detector track replay shows event paths", cx - 225, cy + 22);
-        g2.drawString("Press ENTER to start", cx - 98, cy + 66);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 42));
+        g2.drawString("Qbert Collider Run", cx - 205, cy - 90);
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 19));
+        g2.drawString("Stage 1: move with QEAD, step on platforms, avoid enemy drones", cx - 290, cy - 24);
+        g2.drawString("Stage 2: chamber tunnel run (A/D) controls collision quality", cx - 265, cy + 4);
+        g2.drawString("Stage 3: detector replay with hoverable tracks and detector parts", cx - 282, cy + 32);
+        g2.drawString("Press ENTER to start", cx - 95, cy + 70);
     }
 
     private void drawPause(Graphics2D g2) {
@@ -529,7 +563,7 @@ public class GamePanel extends JPanel {
 
     private void drawSizeWarning(Graphics2D g2) {
         g2.setColor(new Color(255, 200, 100, 220));
-        g2.fillRoundRect(14, getHeight() - 92, 450, 30, 10, 10);
+        g2.fillRoundRect(14, getHeight() - 92, 470, 30, 10, 10);
         g2.setColor(Color.BLACK);
         g2.setFont(new Font("SansSerif", Font.BOLD, 14));
         g2.drawString("Window too small: use at least 1100x760 for full layout.", 24, getHeight() - 72);
@@ -543,42 +577,26 @@ public class GamePanel extends JPanel {
     }
 
     private void drawParticles(Graphics2D g2) {
-        for (ParticleFx fx : particles) {
-            fx.draw(g2);
-        }
+        for (ParticleFx fx : particles) fx.draw(g2);
     }
 
     private void spawnCollisionParticles(int count) {
         Point chamber = boardPoints.get(key(GameModel.ROWS - 1, GameModel.ROWS / 2));
         if (chamber == null) return;
         Color color = model.lastCollisionSuccess ? new Color(140, 255, 190) : new Color(255, 120, 120);
-        for (int i = 0; i < count; i++) {
-            particles.add(new ParticleFx(chamber.x, chamber.y, color));
-        }
+        for (int i = 0; i < count; i++) particles.add(new ParticleFx(chamber.x, chamber.y, color));
     }
 
     private void spawnTunnelSpark(Color c) {
-        int x = getWidth() / 2;
-        int y = getHeight() / 2;
-        for (int i = 0; i < 8; i++) {
-            particles.add(new ParticleFx(x, y, c));
-        }
+        int x = getWidth() / 2, y = getHeight() / 2;
+        for (int i = 0; i < 8; i++) particles.add(new ParticleFx(x, y, c));
     }
 
-    private static String key(int r, int c) {
-        return r + "," + c;
-    }
-
-    private static double lerp(double a, double b, double t) {
-        return a + (b - a) * t;
-    }
+    private static String key(int r, int c) { return r + "," + c; }
+    private static double lerp(double a, double b, double t) { return a + (b - a) * t; }
 
     private class ParticleFx {
-        double x;
-        double y;
-        double vx;
-        double vy;
-        double life;
+        double x, y, vx, vy, life;
         Color color;
 
         ParticleFx(double x, double y, Color color) {
@@ -610,19 +628,33 @@ public class GamePanel extends JPanel {
     }
 
     private class Track {
-        final double angle = random.nextDouble() * Math.PI * 2;
-        final double length = 90 + random.nextDouble() * 190;
-        final Color color = random.nextBoolean() ? new Color(120, 240, 255) : new Color(255, 170, 120);
+        final double angle;
+        final double length;
+        final String info;
+
+        Track(int i) {
+            angle = random.nextDouble() * Math.PI * 2;
+            length = 90 + random.nextDouble() * 190;
+            double pt = 0.8 + random.nextDouble() * 120;
+            int charge = random.nextBoolean() ? 1 : -1;
+            info = "Track " + (i + 1) + " | pT=" + String.format("%.1f", pt) + " GeV | q=" + (charge > 0 ? "+1" : "-1");
+        }
 
         void draw(Graphics2D g2, int cx, int cy, double progress) {
             double r = length * progress;
             int x2 = cx + (int) (Math.cos(angle) * r);
             int y2 = cy + (int) (Math.sin(angle) * r);
-
-            g2.setColor(color);
+            g2.setColor(new Color(120, 240, 255));
             g2.setStroke(new BasicStroke(2f));
             g2.drawLine(cx, cy, x2, y2);
             g2.fillOval(x2 - 2, y2 - 2, 4, 4);
+        }
+
+        boolean hitTest(int cx, int cy, double progress, int mx, int my) {
+            double r = length * progress;
+            int x2 = cx + (int) (Math.cos(angle) * r);
+            int y2 = cy + (int) (Math.sin(angle) * r);
+            return Math.hypot(mx - x2, my - y2) < 8;
         }
     }
 }

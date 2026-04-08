@@ -11,6 +11,7 @@ public class Main {
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             frame.setMinimumSize(new Dimension(1100, 760));
             frame.setSize(1280, 860);
+            frame.setResizable(false);
             frame.setLocationRelativeTo(null);
             frame.setContentPane(new GamePanel());
             frame.setVisible(true);
