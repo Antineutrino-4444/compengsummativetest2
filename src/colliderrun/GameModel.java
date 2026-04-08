@@ -1,196 +1,208 @@
 package colliderrun;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Random;
-import java.util.Set;
 
 public class GameModel {
-    public static final int ROWS = 7;
+    public enum Phase { TITLE, CALIBRATION, CLASSIFICATION, RESULTS }
+    public enum EventClass { MUON_PAIR, JET_BURST, MISSING_ENERGY, BOSON_CANDIDATE }
+
+    public static class EventTrack {
+        public final double angle;
+        public final double length;
+        public final int charge;
+        public final EventClass flavor;
+
+        public EventTrack(double angle, double length, int charge, EventClass flavor) {
+            this.angle = angle;
+            this.length = length;
+            this.charge = charge;
+            this.flavor = flavor;
+        }
+    }
 
     private final Random random = new Random();
-    private final CollisionEngine collisionEngine = new CollisionEngine(new ParticleDatabase(), random);
 
-    public final BoardTile[][] board = new BoardTile[ROWS][];
+    public final int rows = 5;
+    public final boolean[][] charged = new boolean[rows][];
     public final Actor player = new Actor(0, 0);
     public final List<Actor> enemies = new ArrayList<>();
-    public final Set<ParticleType> discoveries = new LinkedHashSet<>();
 
-    public double beamEnergy = 25;
-    public double magnetFocus = 45;
-    public double luminosity = 30;
-    public double detectorCalibration = 50;
-    public double heat = 8;
-
-    public double trackerBuild = 20;
-    public double calorimeterBuild = 20;
-    public double muonBuild = 20;
+    public Phase phase = Phase.TITLE;
 
     public int score;
-    public int lives = 4;
-    public int targetIndex;
+    public int lives;
+    public int chargedCount;
+    public int chargedTarget;
 
-    public boolean gameOver;
-    public boolean victory;
-    public boolean tunnelMode;
+    public long calibrationMsLeft;
+    public long classificationMsLeft;
+    public long eventMsLeft;
 
-    public String eventLog = "Step on stations, avoid enemies, then run chamber tunnel and inspect detector tracks.";
+    public int trackerPower;
+    public int caloPower;
+    public int muonPower;
 
-    public boolean lastCollisionTriggered;
-    public boolean lastCollisionSuccess;
-    public double lastEffectiveEnergy;
-    public double lastPartonFraction;
-    public ParticleType lastParticle;
+    public EventClass currentEventClass;
+    public final List<EventTrack> currentTracks = new ArrayList<>();
+    public int correctTags;
+    public int totalTags;
+    public int selectedLabelIndex;
 
-    private long enemyMoveMs;
+    public String status = "Press ENTER to begin.";
+
+    private long enemyTick;
 
     public GameModel() {
         resetBoard();
-        spawnEnemies();
     }
 
-    public void tick(long deltaMs) {
-        if (gameOver || victory || tunnelMode) return;
+    public void startRun() {
+        resetBoard();
+        lives = 3;
+        score = 0;
+        chargedCount = 0;
+        chargedTarget = 8;
+        calibrationMsLeft = 40_000;
+        classificationMsLeft = 95_000;
+        trackerPower = 45;
+        caloPower = 45;
+        muonPower = 45;
+        correctTags = 0;
+        totalTags = 0;
+        selectedLabelIndex = 0;
+        phase = Phase.CALIBRATION;
+        status = "Stage 1: Charge 8 platforms, avoid drones (QEAD).";
+    }
 
-        lastCollisionTriggered = false;
+    public void tick(long dt) {
+        if (phase == Phase.CALIBRATION) tickCalibration(dt);
+        else if (phase == Phase.CLASSIFICATION) tickClassification(dt);
+    }
 
-        beamEnergy = clamp(beamEnergy - 0.002 * deltaMs, 0, 450);
-        luminosity = clamp(luminosity - 0.0015 * deltaMs, 0, 100);
-        detectorCalibration = clamp(detectorCalibration - 0.001 * deltaMs, 0, 100);
-        magnetFocus = clamp(magnetFocus - 0.0011 * deltaMs, 0, 100);
-        heat = clamp(heat + 0.0009 * deltaMs, 0, 120);
-
-        enemyMoveMs += deltaMs;
-        if (enemyMoveMs >= 760) {
-            enemyMoveMs = 0;
+    private void tickCalibration(long dt) {
+        calibrationMsLeft = Math.max(0, calibrationMsLeft - dt);
+        enemyTick += dt;
+        if (enemyTick > 650) {
+            enemyTick = 0;
             moveEnemies();
-            checkEnemyContact();
+            checkEnemyCollision();
         }
 
-        if (heat > 98) {
-            lives = Math.max(0, lives - 1);
-            heat = 68;
-            eventLog = "Magnet quench: one life lost. Use cooling stations before chamber run.";
+        if (calibrationMsLeft == 0 || chargedCount >= chargedTarget || lives <= 0) {
+            beginClassification();
         }
-
-        if (lives <= 0) gameOver = true;
     }
 
-    public void movePlayer(int dr, int dc) {
-        if (gameOver || victory || tunnelMode) return;
-
-        int nr = player.row + dr;
-        int nc = player.col + dc;
-        if (!isValid(nr, nc)) {
-            eventLog = "Invalid move. Stay on platform grid.";
+    private void beginClassification() {
+        if (lives <= 0) {
+            phase = Phase.RESULTS;
+            status = "Run failed in Stage 1.";
             return;
         }
+        int bonus = (int) Math.round((chargedCount / (double) chargedTarget) * 30);
+        trackerPower = clamp(trackerPower + bonus, 0, 100);
+        caloPower = clamp(caloPower + bonus, 0, 100);
+        muonPower = clamp(muonPower + bonus, 0, 100);
+
+        phase = Phase.CLASSIFICATION;
+        status = "Stage 2: Classify detector events. Arrow keys + ENTER.";
+        spawnEvent();
+    }
+
+    private void tickClassification(long dt) {
+        classificationMsLeft = Math.max(0, classificationMsLeft - dt);
+        eventMsLeft = Math.max(0, eventMsLeft - dt);
+
+        if (eventMsLeft == 0) {
+            score -= 25;
+            totalTags++;
+            status = "Missed event window.";
+            spawnEvent();
+        }
+
+        if (classificationMsLeft == 0) {
+            phase = Phase.RESULTS;
+            status = "Shift complete.";
+        }
+    }
+
+    public void moveCalibrationPlayer(int dr, int dc) {
+        if (phase != Phase.CALIBRATION) return;
+        int nr = player.row + dr;
+        int nc = player.col + dc;
+        if (!isValid(nr, nc)) return;
 
         player.row = nr;
         player.col = nc;
-        BoardTile tile = board[nr][nc];
-        tile.visited = true;
-        applyTile(tile.type);
-        checkEnemyContact();
-    }
-
-    public boolean beginCollisionSequence() {
-        if (gameOver || victory || tunnelMode) return false;
-        BoardTile tile = board[player.row][player.col];
-        if (tile.type != TileType.CHAMBER) {
-            eventLog = "Move to CHAMBER platform first.";
-            return false;
+        if (!charged[nr][nc]) {
+            charged[nr][nc] = true;
+            chargedCount++;
+            score += 20;
+            status = "Platform charged: " + chargedCount + " / " + chargedTarget;
         }
-        tunnelMode = true;
-        eventLog = "Chamber run started: guide beam packet through tunnel gates.";
-        return true;
+        checkEnemyCollision();
     }
 
-    public void finishCollisionSequence(double steeringQuality) {
-        if (!tunnelMode) return;
-        tunnelMode = false;
+    public void selectPrevLabel() {
+        if (phase != Phase.CLASSIFICATION) return;
+        selectedLabelIndex = (selectedLabelIndex + EventClass.values().length - 1) % EventClass.values().length;
+    }
 
-        ParticleType target = currentTarget();
-        double buildFactor = 0.6 + 0.4 * ((trackerBuild + calorimeterBuild + muonBuild) / 300.0);
+    public void selectNextLabel() {
+        if (phase != Phase.CLASSIFICATION) return;
+        selectedLabelIndex = (selectedLabelIndex + 1) % EventClass.values().length;
+    }
 
-        CollisionOutcome outcome = collisionEngine.resolve(
-                beamEnergy,
-                magnetFocus,
-                detectorCalibration * buildFactor,
-                luminosity,
-                heat,
-                steeringQuality,
-                target
-        );
-
-        lastCollisionTriggered = true;
-        lastCollisionSuccess = outcome.valid();
-        lastEffectiveEnergy = outcome.effectiveEnergy();
-        lastPartonFraction = outcome.partonFraction();
-        lastParticle = outcome.particle();
-
-        heat = clamp(heat + 12, 0, 120);
-        luminosity = clamp(luminosity - 6, 0, 100);
-        score += outcome.scoreDelta();
-
-        if (!outcome.valid() || outcome.particle() == null) {
-            lives = Math.max(0, lives - 1);
-            eventLog = outcome.message() + " Collision failed to produce target-quality signal.";
+    public void submitLabel() {
+        if (phase != Phase.CLASSIFICATION) return;
+        EventClass guess = EventClass.values()[selectedLabelIndex];
+        totalTags++;
+        if (guess == currentEventClass) {
+            correctTags++;
+            score += 80;
+            status = "Correct classification: " + guess;
         } else {
-            discoveries.add(outcome.particle());
-            if (outcome.particle().ordinal() >= targetIndex) {
-                targetIndex++;
-                score += 300;
-                eventLog = outcome.message() + " Target milestone completed.";
-            } else {
-                eventLog = outcome.message() + " Valid event, but target not reached yet.";
-            }
+            score -= 30;
+            status = "Incorrect. True class was " + currentEventClass;
         }
-
-        if (targetIndex >= ParticleType.values().length) {
-            victory = true;
-            eventLog = "Campaign complete: detector confirmed all target signatures.";
-        }
-
-        if (lives <= 0) gameOver = true;
+        spawnEvent();
     }
 
-    private void applyTile(TileType type) {
-        switch (type) {
-            case INJECTOR -> {
-                beamEnergy = clamp(beamEnergy + 22, 0, 450);
-                heat = clamp(heat + 6, 0, 120);
-                score += 12;
-                eventLog = "Injector platform: beam energy increased.";
+    private void spawnEvent() {
+        currentEventClass = rollEventClass();
+        currentTracks.clear();
+
+        int count = switch (currentEventClass) {
+            case MUON_PAIR -> 2;
+            case JET_BURST -> 10;
+            case MISSING_ENERGY -> 6;
+            case BOSON_CANDIDATE -> 4;
+        };
+
+        for (int i = 0; i < count; i++) {
+            double angle = random.nextDouble() * Math.PI * 2;
+            double len = 90 + random.nextDouble() * 160;
+            int charge = random.nextBoolean() ? 1 : -1;
+            if (currentEventClass == EventClass.MUON_PAIR && i == 1) {
+                angle += Math.PI;
+                charge = -1;
             }
-            case MAGNET -> {
-                magnetFocus = clamp(magnetFocus + 14, 0, 100);
-                heat = clamp(heat + 3, 0, 120);
-                score += 10;
-                eventLog = "Magnet platform: beam focus improved.";
-            }
-            case LUMINOSITY -> {
-                luminosity = clamp(luminosity + 15, 0, 100);
-                score += 10;
-                eventLog = "Luminosity platform: bunch intensity increased.";
-            }
-            case DETECTOR -> {
-                detectorCalibration = clamp(detectorCalibration + 10, 0, 100);
-                int channel = random.nextInt(3);
-                if (channel == 0) trackerBuild = clamp(trackerBuild + 14, 0, 100);
-                else if (channel == 1) calorimeterBuild = clamp(calorimeterBuild + 14, 0, 100);
-                else muonBuild = clamp(muonBuild + 14, 0, 100);
-                score += 14;
-                eventLog = "Detector platform: upgraded one detector subsystem.";
-            }
-            case COOLING -> {
-                heat = clamp(heat - 16, 0, 120);
-                score += 9;
-                eventLog = "Cooling platform: magnet temperature reduced.";
-            }
-            case CHAMBER -> eventLog = "Chamber ready. Press SPACE to start chamber run.";
+            if (currentEventClass == EventClass.JET_BURST) len = 60 + random.nextDouble() * 110;
+            if (currentEventClass == EventClass.MISSING_ENERGY && i < 2) len = 180 + random.nextDouble() * 80;
+            currentTracks.add(new EventTrack(angle, len, charge, currentEventClass));
         }
+
+        eventMsLeft = 6500;
+    }
+
+    private EventClass rollEventClass() {
+        int r = random.nextInt(100);
+        if (r < 30) return EventClass.MUON_PAIR;
+        if (r < 60) return EventClass.JET_BURST;
+        if (r < 82) return EventClass.MISSING_ENERGY;
+        return EventClass.BOSON_CANDIDATE;
     }
 
     private void moveEnemies() {
@@ -199,90 +211,41 @@ public class GameModel {
             int[] m = moves[random.nextInt(moves.length)];
             int nr = e.row + m[0];
             int nc = e.col + m[1];
-            if (isValid(nr, nc) && board[nr][nc].type != TileType.CHAMBER) {
+            if (isValid(nr, nc)) {
                 e.row = nr;
                 e.col = nc;
             }
         }
     }
 
-    private void checkEnemyContact() {
+    private void checkEnemyCollision() {
         for (Actor e : enemies) {
             if (e.row == player.row && e.col == player.col) {
                 lives = Math.max(0, lives - 1);
                 player.row = 0;
                 player.col = 0;
-                eventLog = "Enemy drone hit! Lost one life and returned to start.";
+                status = "Drone collision! Lives: " + lives;
                 return;
             }
         }
     }
 
-    private void spawnEnemies() {
-        enemies.clear();
-        enemies.add(new Actor(ROWS - 1, 0));
-        enemies.add(new Actor(ROWS - 2, ROWS - 2));
-        enemies.add(new Actor(ROWS - 3, 1));
-    }
-
     private void resetBoard() {
-        for (int r = 0; r < ROWS; r++) {
-            board[r] = new BoardTile[r + 1];
-            for (int c = 0; c <= r; c++) {
-                TileType t;
-                if (r == ROWS - 1 && c == ROWS / 2) t = TileType.CHAMBER;
-                else {
-                    int pattern = (r + c) % 5;
-                    t = switch (pattern) {
-                        case 0 -> TileType.INJECTOR;
-                        case 1 -> TileType.MAGNET;
-                        case 2 -> TileType.LUMINOSITY;
-                        case 3 -> TileType.DETECTOR;
-                        default -> TileType.COOLING;
-                    };
-                }
-                board[r][c] = new BoardTile(r, c, t);
-            }
+        for (int r = 0; r < rows; r++) {
+            charged[r] = new boolean[r + 1];
         }
-    }
-
-    public ParticleType currentTarget() {
-        return ParticleType.values()[Math.min(targetIndex, ParticleType.values().length - 1)];
+        player.row = 0;
+        player.col = 0;
+        enemies.clear();
+        enemies.add(new Actor(rows - 1, 0));
+        enemies.add(new Actor(rows - 1, rows - 1));
     }
 
     public boolean isValid(int row, int col) {
-        return row >= 0 && row < ROWS && col >= 0 && col <= row;
+        return row >= 0 && row < rows && col >= 0 && col <= row;
     }
 
-    public void reset() {
-        beamEnergy = 25;
-        magnetFocus = 45;
-        luminosity = 30;
-        detectorCalibration = 50;
-        heat = 8;
-
-        trackerBuild = 20;
-        calorimeterBuild = 20;
-        muonBuild = 20;
-
-        score = 0;
-        lives = 4;
-        targetIndex = 0;
-        gameOver = false;
-        victory = false;
-        tunnelMode = false;
-        discoveries.clear();
-        player.row = 0;
-        player.col = 0;
-        eventLog = "Step on stations, avoid enemies, then run chamber tunnel and inspect detector tracks.";
-        lastCollisionTriggered = false;
-        lastParticle = null;
-        enemyMoveMs = 0;
-        resetBoard();
-        spawnEnemies();
-    }
-
-    private static double clamp(double v, double min, double max) {
+    private int clamp(int v, int min, int max) {
         return Math.max(min, Math.min(max, v));
     }
 }

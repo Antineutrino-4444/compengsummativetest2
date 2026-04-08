@@ -1,24 +1,27 @@
-# Qbert Collider Run (Java)
+# Qbert Collider Run (Complete Overhaul)
 
-## Core Loop
-1. **Platform Stage (QEAD controls):** step on platforms to tune collider systems and avoid enemy drones.
-2. **Tunnel Stage:** press Space on CHAMBER, then steer beam packet with A/D.
-3. **Detector Replay Stage:** view generated tracks and hover over tracks/detector layers for details.
+This version is rebuilt from scratch.
+
+## Game Structure
+- **Stage 1 (short): Platform Charge**
+  - QEAD movement on a compact stepped board
+  - charge platforms by stepping on them
+  - avoid moving enemy drones
+- **Stage 2 (main): Detector Event Classification**
+  - animated detector tracks are generated per event class
+  - classify events using LEFT/RIGHT + ENTER
+  - hover track endpoints to inspect track details
 
 ## Controls
-- `Q` = up-left platform jump
-- `E` = up-right platform jump
-- `A` = down-left platform jump (or steer left in tunnel)
-- `D` = down-right platform jump (or steer right in tunnel)
-- `Space` = start tunnel run from CHAMBER
-- `P` = pause
-- `R` = reset
-- `Enter` = start/restart from title/end
+- `Q` = up-left
+- `E` = up-right
+- `A` = down-left
+- `D` = down-right
+- `LEFT/RIGHT` = change selected event class (stage 2)
+- `ENTER` = start run / submit classification / replay
 
-## Notes
-- Enemy drones roam the platform stage and cost lives on contact.
-- Detector build quality (tracker/calo/muon) is improved via detector platforms and affects event quality.
-- Window size is fixed by the app (`1280x860`, non-resizable) to prevent clipping.
+## Window
+- Fixed size and non-resizable (set in `Main`) to prevent clipping.
 
 ## Run
 ```bash
