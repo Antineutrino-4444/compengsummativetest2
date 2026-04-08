@@ -24,20 +24,20 @@ import java.util.Map;
 public class GamePanel extends JPanel {
     private final GameModel model = new GameModel();
     private final Timer timer;
-    private final Map<String, Point> points = new HashMap<>();
+    private final Map<String, Point> tuningPoints = new HashMap<>();
 
     private long lastNanos = System.nanoTime();
     private double pulse;
-    private double playerX;
-    private double playerY;
+    private double tunerX;
+    private double tunerY;
 
     private int mouseX;
     private int mouseY;
     private String hover;
 
     public GamePanel() {
-        setBackground(new Color(8, 10, 20));
         setFocusable(true);
+        setBackground(new Color(7, 9, 20));
         setupInput();
         setupMouse();
         timer = new Timer(16, this::frame);
@@ -51,17 +51,25 @@ public class GamePanel extends JPanel {
                 switch (e.getKeyCode()) {
                     case KeyEvent.VK_ENTER -> {
                         if (model.phase == GameModel.Phase.TITLE || model.phase == GameModel.Phase.RESULTS) {
-                            model.startRun();
-                        } else if (model.phase == GameModel.Phase.CLASSIFICATION) {
-                            model.submitLabel();
+                            model.startNewGame();
+                        } else if (model.phase == GameModel.Phase.RUN) {
+                            model.trigger();
                         }
                     }
-                    case KeyEvent.VK_Q -> model.moveCalibrationPlayer(-1, -1);
-                    case KeyEvent.VK_E -> model.moveCalibrationPlayer(-1, 0);
-                    case KeyEvent.VK_A -> model.moveCalibrationPlayer(1, 0);
-                    case KeyEvent.VK_D -> model.moveCalibrationPlayer(1, 1);
-                    case KeyEvent.VK_LEFT -> model.selectPrevLabel();
-                    case KeyEvent.VK_RIGHT -> model.selectNextLabel();
+                    case KeyEvent.VK_Q -> model.moveTuner(-1, -1);
+                    case KeyEvent.VK_E -> model.moveTuner(-1, 0);
+                    case KeyEvent.VK_A -> {
+                        if (model.phase == GameModel.Phase.TUNING) model.moveTuner(1, 0);
+                        else model.moveDetector(-0.04);
+                    }
+                    case KeyEvent.VK_D -> {
+                        if (model.phase == GameModel.Phase.TUNING) model.moveTuner(1, 1);
+                        else model.moveDetector(0.04);
+                    }
+                    case KeyEvent.VK_1 -> model.upgradeTracker();
+                    case KeyEvent.VK_2 -> model.upgradeCalo();
+                    case KeyEvent.VK_3 -> model.upgradeMuon();
+                    case KeyEvent.VK_SPACE -> model.trigger();
                 }
             }
         });
@@ -83,32 +91,32 @@ public class GamePanel extends JPanel {
         lastNanos = now;
         pulse += dt * 0.002;
         model.tick(dt);
-        layoutBoard();
+        layoutTuning();
 
-        Point p = points.get(key(model.player.row, model.player.col));
+        Point p = tuningPoints.get(key(model.tuner.row, model.tuner.col));
         if (p != null) {
-            if (playerX == 0) {
-                playerX = p.x;
-                playerY = p.y;
+            if (tunerX == 0) {
+                tunerX = p.x;
+                tunerY = p.y;
             }
-            playerX += (p.x - playerX) * 0.24;
-            playerY += (p.y - playerY) * 0.24;
+            tunerX += (p.x - tunerX) * 0.22;
+            tunerY += (p.y - tunerY) * 0.22;
         }
 
         repaint();
     }
 
-    private void layoutBoard() {
-        points.clear();
+    private void layoutTuning() {
+        tuningPoints.clear();
         int cx = getWidth() / 2;
         int top = 190;
-        int gapY = 78;
-        int gapX = 95;
-        for (int r = 0; r < model.rows; r++) {
+        int gapY = 82;
+        int gapX = 102;
+        for (int r = 0; r < model.tuningRows; r++) {
             for (int c = 0; c <= r; c++) {
                 int x = cx + (int) ((c - r * 0.5) * gapX);
                 int y = top + r * gapY;
-                points.put(key(r, c), new Point(x, y));
+                tuningPoints.put(key(r, c), new Point(x, y));
             }
         }
     }
@@ -120,8 +128,8 @@ public class GamePanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         drawBackground(g2);
-        if (model.phase == GameModel.Phase.CALIBRATION) drawCalibrationStage(g2);
-        else if (model.phase == GameModel.Phase.CLASSIFICATION) drawClassificationStage(g2);
+        if (model.phase == GameModel.Phase.TUNING) drawTuning(g2);
+        else if (model.phase == GameModel.Phase.RUN) drawRun(g2);
         else if (model.phase == GameModel.Phase.RESULTS) drawResults(g2);
         else drawTitle(g2);
 
@@ -130,110 +138,118 @@ public class GamePanel extends JPanel {
     }
 
     private void drawBackground(Graphics2D g2) {
-        g2.setPaint(new GradientPaint(0, 0, new Color(10, 14, 34), 0, getHeight(), new Color(6, 8, 18)));
+        g2.setPaint(new GradientPaint(0, 0, new Color(9, 12, 30), 0, getHeight(), new Color(4, 6, 14)));
         g2.fillRect(0, 0, getWidth(), getHeight());
     }
 
-    private void drawCalibrationStage(Graphics2D g2) {
-        for (int r = model.rows - 1; r >= 0; r--) {
+    private void drawTuning(Graphics2D g2) {
+        for (int r = model.tuningRows - 1; r >= 0; r--) {
             for (int c = 0; c <= r; c++) {
-                Point p = points.get(key(r, c));
-                drawPlatform(g2, p.x, p.y, model.charged[r][c]);
+                Point p = tuningPoints.get(key(r, c));
+                drawNode(g2, p.x, p.y, model.tuned[r][c]);
             }
         }
 
         for (Actor e : model.enemies) {
-            Point p = points.get(key(e.row, e.col));
+            Point p = tuningPoints.get(key(e.row, e.col));
             g2.setColor(new Color(255, 90, 130));
             g2.fillOval(p.x - 14, p.y - 56, 28, 20);
         }
 
         int bob = (int) (Math.sin(pulse * 5) * 4);
-        g2.setColor(new Color(255, 165, 70));
-        g2.fillOval((int) playerX - 16, (int) playerY - 58 + bob, 32, 24);
+        g2.setColor(new Color(255, 160, 60));
+        g2.fillOval((int) tunerX - 16, (int) tunerY - 58 + bob, 32, 26);
     }
 
-    private void drawPlatform(Graphics2D g2, int x, int y, boolean charged) {
-        int hw = 40, hh = 20, depth = 18;
-        Color top = charged ? new Color(120, 255, 170) : new Color(80, 140, 255);
+    private void drawNode(Graphics2D g2, int x, int y, boolean tuned) {
+        int hw = 42, hh = 20, d = 18;
+        Color c = tuned ? new Color(130, 255, 180) : new Color(90, 150, 255);
+        Polygon top = new Polygon(new int[]{x, x + hw, x, x - hw}, new int[]{y - hh, y, y + hh, y}, 4);
+        Polygon left = new Polygon(new int[]{x - hw, x, x, x - hw}, new int[]{y, y + hh, y + hh + d, y + d}, 4);
+        Polygon right = new Polygon(new int[]{x + hw, x, x, x + hw}, new int[]{y, y + hh, y + hh + d, y + d}, 4);
 
-        Polygon topFace = new Polygon(new int[]{x, x + hw, x, x - hw}, new int[]{y - hh, y, y + hh, y}, 4);
-        Polygon left = new Polygon(new int[]{x - hw, x, x, x - hw}, new int[]{y, y + hh, y + hh + depth, y + depth}, 4);
-        Polygon right = new Polygon(new int[]{x + hw, x, x, x + hw}, new int[]{y, y + hh, y + hh + depth, y + depth}, 4);
-
-        g2.setColor(top.darker());
+        g2.setColor(c.darker());
         g2.fillPolygon(left);
-        g2.setColor(top.brighter());
+        g2.setColor(c.brighter());
         g2.fillPolygon(right);
-        g2.setColor(top);
-        g2.fillPolygon(topFace);
-        g2.setColor(new Color(20, 22, 35));
-        g2.drawPolygon(topFace);
+        g2.setColor(c);
+        g2.fillPolygon(top);
+        g2.setColor(new Color(20, 20, 30));
+        g2.drawPolygon(top);
         g2.drawPolygon(left);
         g2.drawPolygon(right);
     }
 
-    private void drawClassificationStage(Graphics2D g2) {
-        int cx = getWidth() / 2;
-        int cy = getHeight() / 2 + 40;
+    private void drawRun(Graphics2D g2) {
+        int w = getWidth();
+        int h = getHeight();
+        int detectorY = h - 120;
 
-        g2.setColor(new Color(120, 160, 220));
+        // detector layers
+        int cx = w / 2;
+        int cy = h / 2 + 30;
+        g2.setColor(new Color(100, 140, 220));
         g2.setStroke(new BasicStroke(2f));
-        g2.drawOval(cx - 70, cy - 70, 140, 140);
-        g2.drawOval(cx - 130, cy - 130, 260, 260);
-        g2.drawOval(cx - 190, cy - 190, 380, 380);
+        g2.drawOval(cx - 100, cy - 100, 200, 200);
+        g2.drawOval(cx - 170, cy - 170, 340, 340);
+        g2.drawOval(cx - 240, cy - 240, 480, 480);
 
         hover = null;
-        double progress = 1.0 - (model.eventMsLeft / 6500.0);
-        progress = Math.max(0.1, Math.min(1.0, progress));
 
-        int idx = 1;
-        for (GameModel.EventTrack t : model.currentTracks) {
-            int x2 = cx + (int) (Math.cos(t.angle) * t.length * progress);
-            int y2 = cy + (int) (Math.sin(t.angle) * t.length * progress);
-
-            Color color = switch (t.flavor) {
-                case MUON_PAIR -> new Color(130, 255, 240);
-                case JET_BURST -> new Color(255, 170, 100);
-                case MISSING_ENERGY -> new Color(255, 120, 120);
-                case BOSON_CANDIDATE -> new Color(180, 255, 140);
-            };
+        for (GameModel.FallingEvent e : model.events) {
+            int x = (int) (e.x * w);
+            int y = (int) (e.y * h);
+            Color color = e.signalLike ? new Color(120, 255, 180) : new Color(255, 130, 130);
             g2.setColor(color);
-            g2.drawLine(cx, cy, x2, y2);
-            g2.fillOval(x2 - 3, y2 - 3, 6, 6);
+            g2.fillOval(x - 8, y - 8, 16, 16);
 
-            if (Math.hypot(mouseX - x2, mouseY - y2) < 10) {
-                hover = "Track " + idx + " | q=" + (t.charge > 0 ? "+1" : "-1") + " | class bias=" + t.flavor;
+            if (e.signalLike) {
+                g2.setColor(new Color(120, 255, 220, 100));
+                g2.drawLine(cx, cy, x, y);
             }
-            idx++;
+
+            if (Math.hypot(mouseX - x, mouseY - y) < 10) {
+                hover = "Event E=" + String.format("%.1f", e.baseEnergy) + " GeV | " + (e.signalLike ? "signal-like" : "background");
+            }
         }
 
-        drawClassifier(g2);
+        // trigger window and detector paddle
+        int paddleX = (int) (model.detectorX * w);
+        g2.setColor(new Color(255, 210, 120));
+        g2.fillRoundRect(paddleX - 50, detectorY, 100, 16, 8, 8);
+        g2.setColor(new Color(180, 220, 255));
+        g2.drawRoundRect(paddleX - 80, detectorY - 48, 160, 60, 10, 10);
+
         if (hover != null) drawHover(g2, hover, mouseX, mouseY);
+
+        drawDiscoveryBoard(g2);
     }
 
-    private void drawClassifier(Graphics2D g2) {
-        String[] labels = {"MUON_PAIR", "JET_BURST", "MISSING_ENERGY", "BOSON_CANDIDATE"};
-        int x = 40, y = 220;
-        g2.setColor(new Color(20, 30, 55, 220));
-        g2.fillRoundRect(x, y, 300, 160, 12, 12);
+    private void drawDiscoveryBoard(Graphics2D g2) {
+        int x = getWidth() - 300;
+        int y = 170;
+        g2.setColor(new Color(18, 24, 42, 220));
+        g2.fillRoundRect(x, y, 280, 190, 12, 12);
         g2.setColor(Color.WHITE);
-        g2.drawString("Classify current event", x + 12, y + 24);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 16));
+        g2.drawString("Produced Particles", x + 12, y + 24);
 
-        for (int i = 0; i < labels.length; i++) {
-            g2.setColor(i == model.selectedLabelIndex ? new Color(255, 220, 120) : new Color(180, 190, 210));
-            g2.drawString((i == model.selectedLabelIndex ? "> " : "  ") + labels[i], x + 14, y + 48 + i * 24);
+        int yy = y + 48;
+        g2.setFont(new Font("Monospaced", Font.PLAIN, 13));
+        for (ParticleType p : ParticleType.values()) {
+            boolean found = model.discovered.contains(p);
+            g2.setColor(found ? new Color(130, 255, 150) : new Color(140, 150, 170));
+            g2.drawString((found ? "OK " : "-- ") + p.label + "  " + p.thresholdGeV + " GeV", x + 12, yy);
+            yy += 20;
         }
-        g2.setColor(new Color(200, 220, 255));
-        g2.drawString("LEFT/RIGHT to choose, ENTER to submit", x + 12, y + 144);
     }
 
     private void drawHover(Graphics2D g2, String text, int x, int y) {
         int w = g2.getFontMetrics().stringWidth(text) + 14;
         int h = 22;
-        int bx = Math.min(getWidth() - w - 10, x + 12);
-        int by = Math.max(10, y - 24);
-        g2.setColor(new Color(12, 22, 44, 230));
+        int bx = Math.min(getWidth() - w - 8, x + 12);
+        int by = Math.max(8, y - 26);
+        g2.setColor(new Color(10, 20, 40, 230));
         g2.fillRoundRect(bx, by, w, h, 8, 8);
         g2.setColor(Color.WHITE);
         g2.drawRoundRect(bx, by, w, h, 8, 8);
@@ -241,21 +257,24 @@ public class GamePanel extends JPanel {
     }
 
     private void drawHud(Graphics2D g2) {
-        g2.setColor(new Color(15, 22, 48, 230));
-        g2.fillRoundRect(16, 16, getWidth() - 32, 130, 14, 14);
+        g2.setColor(new Color(16, 22, 45, 230));
+        g2.fillRoundRect(14, 14, getWidth() - 28, 140, 12, 12);
         g2.setColor(Color.WHITE);
-        g2.setFont(new Font("SansSerif", Font.BOLD, 20));
-        g2.drawString("Collider Shift", 28, 42);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 21));
+        g2.drawString("Collider Run", 26, 40);
 
         g2.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        g2.drawString("Score: " + model.score + "    Lives: " + model.lives, 28, 66);
-        g2.drawString("Status: " + model.status, 28, 88);
+        g2.drawString("Score: " + model.score + "  Lives: " + model.lives + "  Resources: " + model.resources, 26, 64);
+        g2.drawString("Beam: " + fmt(model.beamEnergy) + "  Lumi: " + fmt(model.luminosity) + "  Align: " + fmt(model.magnetAlignment), 26, 86);
+        g2.drawString("Detector Lv (1/2/3 keys): Tracker " + model.trackerLevel + "  Calo " + model.caloLevel + "  Muon " + model.muonLevel, 26, 108);
+        g2.drawString(model.status, 26, 130);
 
-        if (model.phase == GameModel.Phase.CALIBRATION) {
-            g2.drawString("Charged: " + model.chargedCount + "/" + model.chargedTarget + "    Time: " + (model.calibrationMsLeft / 1000) + "s", 28, 110);
-        } else if (model.phase == GameModel.Phase.CLASSIFICATION) {
-            g2.drawString("Detector power T/C/M: " + model.trackerPower + "/" + model.caloPower + "/" + model.muonPower, 28, 110);
-            g2.drawString("Classification: " + model.correctTags + "/" + model.totalTags + "    Event timer: " + (model.eventMsLeft / 1000.0), 28, 128);
+        if (model.phase == GameModel.Phase.TUNING) {
+            g2.drawString("Tuning: " + model.tunedCount + "/" + model.tunedTarget + "  Time: " + (model.tuningMsLeft / 1000) + "s", 760, 64);
+        }
+        if (model.phase == GameModel.Phase.RUN) {
+            g2.drawString("Run time left: " + (model.runMsLeft / 1000) + "s  Last Eeff: " + fmt(model.lastEffectiveEnergy), 760, 64);
+            g2.drawString("Controls: A/D move trigger, SPACE/ENTER trigger event", 760, 86);
         }
     }
 
@@ -263,26 +282,26 @@ public class GamePanel extends JPanel {
         overlay(g2);
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("SansSerif", Font.BOLD, 42));
-        g2.drawString("Qbert Collider Run - Overhaul", getWidth() / 2 - 280, getHeight() / 2 - 60);
+        g2.drawString("Qbert Collider Run - Steam-Style Rework", getWidth() / 2 - 360, getHeight() / 2 - 60);
         g2.setFont(new Font("SansSerif", Font.PLAIN, 20));
-        g2.drawString("Stage 1: QEAD platform charge + avoid drones", getWidth() / 2 - 210, getHeight() / 2 - 10);
-        g2.drawString("Stage 2: classify detector events with realistic-looking track patterns", getWidth() / 2 - 300, getHeight() / 2 + 18);
+        g2.drawString("Minor stage: QEAD platform tuning. Main stage: real-time collision operations.", getWidth() / 2 - 320, getHeight() / 2 - 10);
+        g2.drawString("Build detector systems, trigger collisions, and produce heavier particles.", getWidth() / 2 - 300, getHeight() / 2 + 18);
         g2.drawString("Press ENTER to start", getWidth() / 2 - 95, getHeight() / 2 + 62);
     }
 
     private void drawResults(Graphics2D g2) {
         overlay(g2);
         g2.setColor(Color.WHITE);
-        g2.setFont(new Font("SansSerif", Font.BOLD, 40));
-        g2.drawString("Shift Complete", getWidth() / 2 - 140, getHeight() / 2 - 30);
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 22));
-        g2.drawString("Final score: " + model.score, getWidth() / 2 - 88, getHeight() / 2 + 10);
-        g2.drawString("Correct classifications: " + model.correctTags + "/" + Math.max(1, model.totalTags), getWidth() / 2 - 150, getHeight() / 2 + 40);
-        g2.drawString("Press ENTER to play again", getWidth() / 2 - 125, getHeight() / 2 + 80);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 42));
+        g2.drawString("Run Complete", getWidth() / 2 - 140, getHeight() / 2 - 36);
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 24));
+        g2.drawString("Score: " + model.score, getWidth() / 2 - 70, getHeight() / 2 + 4);
+        g2.drawString("Particles discovered: " + model.discovered.size() + "/" + ParticleType.values().length, getWidth() / 2 - 145, getHeight() / 2 + 36);
+        g2.drawString("Press ENTER to play again", getWidth() / 2 - 125, getHeight() / 2 + 76);
     }
 
     private void overlay(Graphics2D g2) {
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.7f));
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.72f));
         g2.setColor(new Color(5, 10, 22));
         g2.fillRect(0, 0, getWidth(), getHeight());
         g2.setComposite(AlphaComposite.SrcOver);
@@ -290,5 +309,9 @@ public class GamePanel extends JPanel {
 
     private static String key(int r, int c) {
         return r + "," + c;
+    }
+
+    private static String fmt(double v) {
+        return String.format("%.1f", v);
     }
 }

@@ -1,27 +1,31 @@
-# Qbert Collider Run (Complete Overhaul)
+# Qbert Collider Run (Major Rebuild)
 
-This version is rebuilt from scratch.
+This version is a full redesign aimed at a polished arcade feel.
 
-## Game Structure
-- **Stage 1 (short): Platform Charge**
-  - QEAD movement on a compact stepped board
-  - charge platforms by stepping on them
-  - avoid moving enemy drones
-- **Stage 2 (main): Detector Event Classification**
-  - animated detector tracks are generated per event class
-  - classify events using LEFT/RIGHT + ENTER
-  - hover track endpoints to inspect track details
+## Core Design
+- **Stage 1 (minor, 10-20%)**: QEAD platform tuning on a compact stepped grid.
+  - charge nodes
+  - avoid drones
+  - boosts initial collider parameters
+- **Stage 2 (main, 80-90%)**: real-time collider operations.
+  - falling event stream (signal/background)
+  - move detector trigger window with A/D
+  - trigger with Space/Enter
+  - spend resources on Tracker/Calo/Muon upgrades (`1/2/3`)
+  - produce particles based on effective collision energy and detector quality
+
+## Science Mechanics Used
+- beam energy, luminosity, and alignment affect effective collision energy
+- per-collision random parton fraction
+- detector subsystem upgrades improve reconstruction quality
+- particles unlock by threshold energy (via `ParticleType` thresholds)
 
 ## Controls
-- `Q` = up-left
-- `E` = up-right
-- `A` = down-left
-- `D` = down-right
-- `LEFT/RIGHT` = change selected event class (stage 2)
-- `ENTER` = start run / submit classification / replay
-
-## Window
-- Fixed size and non-resizable (set in `Main`) to prevent clipping.
+- `Q` `E` `A` `D` in stage 1 (platform movement)
+- `A` `D` in stage 2 (trigger window movement)
+- `Space` or `Enter` to trigger event in stage 2
+- `1` `2` `3` for tracker/calo/muon upgrades
+- `Enter` to start/restart
 
 ## Run
 ```bash

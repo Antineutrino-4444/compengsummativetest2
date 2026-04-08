@@ -1,251 +1,306 @@
 package colliderrun;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 
 public class GameModel {
-    public enum Phase { TITLE, CALIBRATION, CLASSIFICATION, RESULTS }
-    public enum EventClass { MUON_PAIR, JET_BURST, MISSING_ENERGY, BOSON_CANDIDATE }
+    public enum Phase { TITLE, TUNING, RUN, RESULTS }
 
-    public static class EventTrack {
-        public final double angle;
-        public final double length;
-        public final int charge;
-        public final EventClass flavor;
+    public static class FallingEvent {
+        public double x;
+        public double y;
+        public double speed;
+        public boolean signalLike;
+        public double baseEnergy;
 
-        public EventTrack(double angle, double length, int charge, EventClass flavor) {
-            this.angle = angle;
-            this.length = length;
-            this.charge = charge;
-            this.flavor = flavor;
+        public FallingEvent(double x, double speed, boolean signalLike, double baseEnergy) {
+            this.x = x;
+            this.speed = speed;
+            this.signalLike = signalLike;
+            this.baseEnergy = baseEnergy;
         }
     }
 
     private final Random random = new Random();
 
-    public final int rows = 5;
-    public final boolean[][] charged = new boolean[rows][];
-    public final Actor player = new Actor(0, 0);
-    public final List<Actor> enemies = new ArrayList<>();
-
     public Phase phase = Phase.TITLE;
+    public String status = "Press ENTER to start Collider Run.";
 
-    public int score;
+    public final int tuningRows = 4;
+    public final boolean[][] tuned = new boolean[tuningRows][];
+    public final Actor tuner = new Actor(0, 0);
+    public final List<Actor> enemies = new ArrayList<>();
+    public int tunedCount;
+    public int tunedTarget;
+    public long tuningMsLeft;
+    private long enemyMoveMs;
+
+    public double beamEnergy = 40;
+    public double luminosity = 35;
+    public double magnetAlignment = 45;
+
+    public long runMsLeft;
+    public double detectorX = 0.5;
+    public final List<FallingEvent> events = new ArrayList<>();
+    public long spawnMs;
+
+    public int trackerLevel = 1;
+    public int caloLevel = 1;
+    public int muonLevel = 1;
+    public int resources;
     public int lives;
-    public int chargedCount;
-    public int chargedTarget;
+    public int score;
 
-    public long calibrationMsLeft;
-    public long classificationMsLeft;
-    public long eventMsLeft;
-
-    public int trackerPower;
-    public int caloPower;
-    public int muonPower;
-
-    public EventClass currentEventClass;
-    public final List<EventTrack> currentTracks = new ArrayList<>();
-    public int correctTags;
-    public int totalTags;
-    public int selectedLabelIndex;
-
-    public String status = "Press ENTER to begin.";
-
-    private long enemyTick;
+    public final Set<ParticleType> discovered = new LinkedHashSet<>();
+    public ParticleType lastProduced;
+    public double lastEffectiveEnergy;
 
     public GameModel() {
-        resetBoard();
+        for (int r = 0; r < tuningRows; r++) tuned[r] = new boolean[r + 1];
+        enemies.add(new Actor(tuningRows - 1, 0));
+        enemies.add(new Actor(tuningRows - 1, tuningRows - 1));
     }
 
-    public void startRun() {
-        resetBoard();
-        lives = 3;
+    public void startNewGame() {
+        phase = Phase.TUNING;
+        status = "Stage 1: tune platforms with QEAD (minor phase).";
+
+        for (int r = 0; r < tuningRows; r++) {
+            for (int c = 0; c <= r; c++) tuned[r][c] = false;
+        }
+
+        tuner.row = 0;
+        tuner.col = 0;
+        enemies.get(0).row = tuningRows - 1;
+        enemies.get(0).col = 0;
+        enemies.get(1).row = tuningRows - 1;
+        enemies.get(1).col = tuningRows - 1;
+
+        tunedCount = 0;
+        tunedTarget = 7;
+        tuningMsLeft = 26_000;
+        enemyMoveMs = 0;
+
+        beamEnergy = 40;
+        luminosity = 35;
+        magnetAlignment = 45;
+
+        runMsLeft = 130_000;
+        detectorX = 0.5;
+        events.clear();
+        spawnMs = 0;
+
+        trackerLevel = 1;
+        caloLevel = 1;
+        muonLevel = 1;
+        resources = 0;
+        lives = 5;
         score = 0;
-        chargedCount = 0;
-        chargedTarget = 8;
-        calibrationMsLeft = 40_000;
-        classificationMsLeft = 95_000;
-        trackerPower = 45;
-        caloPower = 45;
-        muonPower = 45;
-        correctTags = 0;
-        totalTags = 0;
-        selectedLabelIndex = 0;
-        phase = Phase.CALIBRATION;
-        status = "Stage 1: Charge 8 platforms, avoid drones (QEAD).";
+
+        discovered.clear();
+        lastProduced = null;
+        lastEffectiveEnergy = 0;
     }
 
     public void tick(long dt) {
-        if (phase == Phase.CALIBRATION) tickCalibration(dt);
-        else if (phase == Phase.CLASSIFICATION) tickClassification(dt);
+        if (phase == Phase.TUNING) tickTuning(dt);
+        if (phase == Phase.RUN) tickRun(dt);
     }
 
-    private void tickCalibration(long dt) {
-        calibrationMsLeft = Math.max(0, calibrationMsLeft - dt);
-        enemyTick += dt;
-        if (enemyTick > 650) {
-            enemyTick = 0;
+    private void tickTuning(long dt) {
+        tuningMsLeft = Math.max(0, tuningMsLeft - dt);
+        enemyMoveMs += dt;
+        if (enemyMoveMs >= 680) {
+            enemyMoveMs = 0;
             moveEnemies();
             checkEnemyCollision();
         }
-
-        if (calibrationMsLeft == 0 || chargedCount >= chargedTarget || lives <= 0) {
-            beginClassification();
+        if (tuningMsLeft == 0 || tunedCount >= tunedTarget || lives <= 0) {
+            if (lives <= 0) {
+                phase = Phase.RESULTS;
+                status = "Failed during tuning.";
+            } else {
+                phase = Phase.RUN;
+                status = "Stage 2: trigger collisions, build detector, and discover particles.";
+            }
         }
     }
 
-    private void beginClassification() {
-        if (lives <= 0) {
-            phase = Phase.RESULTS;
-            status = "Run failed in Stage 1.";
-            return;
-        }
-        int bonus = (int) Math.round((chargedCount / (double) chargedTarget) * 30);
-        trackerPower = clamp(trackerPower + bonus, 0, 100);
-        caloPower = clamp(caloPower + bonus, 0, 100);
-        muonPower = clamp(muonPower + bonus, 0, 100);
-
-        phase = Phase.CLASSIFICATION;
-        status = "Stage 2: Classify detector events. Arrow keys + ENTER.";
-        spawnEvent();
-    }
-
-    private void tickClassification(long dt) {
-        classificationMsLeft = Math.max(0, classificationMsLeft - dt);
-        eventMsLeft = Math.max(0, eventMsLeft - dt);
-
-        if (eventMsLeft == 0) {
-            score -= 25;
-            totalTags++;
-            status = "Missed event window.";
+    private void tickRun(long dt) {
+        runMsLeft = Math.max(0, runMsLeft - dt);
+        spawnMs += dt;
+        if (spawnMs >= 620) {
+            spawnMs = 0;
             spawnEvent();
         }
 
-        if (classificationMsLeft == 0) {
+        List<FallingEvent> remove = new ArrayList<>();
+        for (FallingEvent e : events) {
+            e.y += e.speed * dt * 0.001;
+            if (e.y > 1.10) {
+                if (e.signalLike) lives = Math.max(0, lives - 1);
+                remove.add(e);
+            }
+        }
+        events.removeAll(remove);
+
+        if (lives <= 0 || runMsLeft == 0) {
             phase = Phase.RESULTS;
-            status = "Shift complete.";
+            status = "Run complete. Press ENTER to restart.";
         }
     }
 
-    public void moveCalibrationPlayer(int dr, int dc) {
-        if (phase != Phase.CALIBRATION) return;
-        int nr = player.row + dr;
-        int nc = player.col + dc;
-        if (!isValid(nr, nc)) return;
+    private void spawnEvent() {
+        boolean signal = random.nextDouble() < signalChance();
+        double x = 0.1 + random.nextDouble() * 0.8;
+        double speed = 0.21 + random.nextDouble() * 0.34;
+        double base = signal ? 60 + random.nextDouble() * 360 : 10 + random.nextDouble() * 120;
+        events.add(new FallingEvent(x, speed, signal, base));
+    }
 
-        player.row = nr;
-        player.col = nc;
-        if (!charged[nr][nc]) {
-            charged[nr][nc] = true;
-            chargedCount++;
-            score += 20;
-            status = "Platform charged: " + chargedCount + " / " + chargedTarget;
+    private double signalChance() {
+        double detectorQuality = (trackerLevel + caloLevel + muonLevel) / 18.0;
+        return 0.22 + detectorQuality * 0.12;
+    }
+
+    public void moveTuner(int dr, int dc) {
+        if (phase != Phase.TUNING) return;
+        int nr = tuner.row + dr;
+        int nc = tuner.col + dc;
+        if (nr < 0 || nr >= tuningRows || nc < 0 || nc > nr) return;
+
+        tuner.row = nr;
+        tuner.col = nc;
+
+        if (!tuned[nr][nc]) {
+            tuned[nr][nc] = true;
+            tunedCount++;
+            int mode = (nr + nc) % 3;
+            if (mode == 0) beamEnergy = clamp(beamEnergy + 18, 0, 700);
+            if (mode == 1) luminosity = clamp(luminosity + 12, 0, 100);
+            if (mode == 2) magnetAlignment = clamp(magnetAlignment + 14, 0, 100);
+            score += 30;
+            status = "Tuned node " + tunedCount + "/" + tunedTarget;
         }
         checkEnemyCollision();
     }
 
-    public void selectPrevLabel() {
-        if (phase != Phase.CLASSIFICATION) return;
-        selectedLabelIndex = (selectedLabelIndex + EventClass.values().length - 1) % EventClass.values().length;
+    public void moveDetector(double dx) {
+        if (phase != Phase.RUN) return;
+        detectorX = clamp(detectorX + dx, 0.05, 0.95);
     }
 
-    public void selectNextLabel() {
-        if (phase != Phase.CLASSIFICATION) return;
-        selectedLabelIndex = (selectedLabelIndex + 1) % EventClass.values().length;
-    }
-
-    public void submitLabel() {
-        if (phase != Phase.CLASSIFICATION) return;
-        EventClass guess = EventClass.values()[selectedLabelIndex];
-        totalTags++;
-        if (guess == currentEventClass) {
-            correctTags++;
-            score += 80;
-            status = "Correct classification: " + guess;
-        } else {
-            score -= 30;
-            status = "Incorrect. True class was " + currentEventClass;
-        }
-        spawnEvent();
-    }
-
-    private void spawnEvent() {
-        currentEventClass = rollEventClass();
-        currentTracks.clear();
-
-        int count = switch (currentEventClass) {
-            case MUON_PAIR -> 2;
-            case JET_BURST -> 10;
-            case MISSING_ENERGY -> 6;
-            case BOSON_CANDIDATE -> 4;
-        };
-
-        for (int i = 0; i < count; i++) {
-            double angle = random.nextDouble() * Math.PI * 2;
-            double len = 90 + random.nextDouble() * 160;
-            int charge = random.nextBoolean() ? 1 : -1;
-            if (currentEventClass == EventClass.MUON_PAIR && i == 1) {
-                angle += Math.PI;
-                charge = -1;
+    public void trigger() {
+        if (phase != Phase.RUN) return;
+        FallingEvent best = null;
+        double bestDist = 999;
+        for (FallingEvent e : events) {
+            if (e.y < 0.66 || e.y > 0.92) continue;
+            double d = Math.abs(e.x - detectorX);
+            if (d < bestDist) {
+                bestDist = d;
+                best = e;
             }
-            if (currentEventClass == EventClass.JET_BURST) len = 60 + random.nextDouble() * 110;
-            if (currentEventClass == EventClass.MISSING_ENERGY && i < 2) len = 180 + random.nextDouble() * 80;
-            currentTracks.add(new EventTrack(angle, len, charge, currentEventClass));
         }
 
-        eventMsLeft = 6500;
+        if (best == null) {
+            score -= 6;
+            status = "No event in trigger window.";
+            return;
+        }
+
+        events.remove(best);
+        double acceptance = 0.10 + trackerLevel * 0.03;
+        if (bestDist > acceptance) {
+            score -= 12;
+            status = "Missed the event trajectory.";
+            return;
+        }
+
+        if (!best.signalLike) {
+            score -= 16;
+            status = "Background accepted. Tune detector levels.";
+            return;
+        }
+
+        score += 45;
+        resources += 1;
+        produceParticle(best.baseEnergy);
     }
 
-    private EventClass rollEventClass() {
-        int r = random.nextInt(100);
-        if (r < 30) return EventClass.MUON_PAIR;
-        if (r < 60) return EventClass.JET_BURST;
-        if (r < 82) return EventClass.MISSING_ENERGY;
-        return EventClass.BOSON_CANDIDATE;
+    private void produceParticle(double baseEnergy) {
+        double parton = 0.22 + random.nextDouble() * 0.78;
+        double machine = (beamEnergy / 700.0) * (0.7 + luminosity / 120.0) * (0.7 + magnetAlignment / 120.0);
+        double detector = 0.75 + ((trackerLevel + caloLevel + muonLevel) / 18.0) * 0.55;
+        lastEffectiveEnergy = baseEnergy * parton * machine * detector;
+
+        ParticleType produced = null;
+        for (ParticleType p : ParticleType.values()) {
+            if (lastEffectiveEnergy >= p.thresholdGeV) produced = p;
+        }
+
+        if (produced == null) {
+            status = "Soft event only (" + fmt(lastEffectiveEnergy) + " GeV).";
+            return;
+        }
+
+        lastProduced = produced;
+        discovered.add(produced);
+        score += 110 + produced.ordinal() * 45;
+        status = "Produced " + produced.label + " at " + fmt(lastEffectiveEnergy) + " GeV";
+    }
+
+    public void upgradeTracker() {
+        if (phase != Phase.RUN || resources < 2 || trackerLevel >= 6) return;
+        resources -= 2;
+        trackerLevel++;
+    }
+
+    public void upgradeCalo() {
+        if (phase != Phase.RUN || resources < 2 || caloLevel >= 6) return;
+        resources -= 2;
+        caloLevel++;
+    }
+
+    public void upgradeMuon() {
+        if (phase != Phase.RUN || resources < 2 || muonLevel >= 6) return;
+        resources -= 2;
+        muonLevel++;
     }
 
     private void moveEnemies() {
         int[][] moves = {{1, 0}, {1, 1}, {-1, 0}, {-1, -1}};
-        for (Actor e : enemies) {
+        for (Actor enemy : enemies) {
             int[] m = moves[random.nextInt(moves.length)];
-            int nr = e.row + m[0];
-            int nc = e.col + m[1];
-            if (isValid(nr, nc)) {
-                e.row = nr;
-                e.col = nc;
+            int nr = enemy.row + m[0];
+            int nc = enemy.col + m[1];
+            if (nr >= 0 && nr < tuningRows && nc >= 0 && nc <= nr) {
+                enemy.row = nr;
+                enemy.col = nc;
             }
         }
     }
 
     private void checkEnemyCollision() {
-        for (Actor e : enemies) {
-            if (e.row == player.row && e.col == player.col) {
+        for (Actor enemy : enemies) {
+            if (enemy.row == tuner.row && enemy.col == tuner.col) {
                 lives = Math.max(0, lives - 1);
-                player.row = 0;
-                player.col = 0;
-                status = "Drone collision! Lives: " + lives;
+                tuner.row = 0;
+                tuner.col = 0;
+                status = "Drone collision in tuning stage. Lives: " + lives;
                 return;
             }
         }
     }
 
-    private void resetBoard() {
-        for (int r = 0; r < rows; r++) {
-            charged[r] = new boolean[r + 1];
-        }
-        player.row = 0;
-        player.col = 0;
-        enemies.clear();
-        enemies.add(new Actor(rows - 1, 0));
-        enemies.add(new Actor(rows - 1, rows - 1));
+    private static double clamp(double v, double lo, double hi) {
+        return Math.max(lo, Math.min(hi, v));
     }
 
-    public boolean isValid(int row, int col) {
-        return row >= 0 && row < rows && col >= 0 && col <= row;
-    }
-
-    private int clamp(int v, int min, int max) {
-        return Math.max(min, Math.min(max, v));
+    private static String fmt(double d) {
+        return String.format("%.1f", d);
     }
 }
