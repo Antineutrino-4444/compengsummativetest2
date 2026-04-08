@@ -1,32 +1,33 @@
 # Qbert Collider Run (Java)
 
-A Java arcade game with two linked gameplay phases:
-- **Phase 1 (Board Ops):** move across modules to tune collider systems.
-- **Phase 2 (Tunnel Run):** after reaching the chamber, steer a beam packet through gates to determine collision quality.
+A Java arcade game with three clearly separated stages per collision attempt.
 
-## Clear Objective
-Repeat this cycle until all targets are confirmed in order:
-1. Improve machine state (Beam, Focus, Luminosity, Detector, Heat).
-2. Move to **CHAMBER** tile.
-3. Press **Space** to enter tunnel phase.
-4. Survive tunnel gates (A/D or Left/Right).
-5. Collision result is computed and may complete current target.
+## Gameplay Stages
+1. **Station Grid (re-imagined Qbert part)**
+   - Move across stations to tune Beam, Focus, Luminosity, Detector, and Heat.
+   - Reach the **CHAMBER** station.
+2. **Tunnel Run (major gameplay stage)**
+   - Press **Space** at CHAMBER to start a long beam-tunnel run.
+   - Steer with **A/D** or **Left/Right** through many gates.
+   - Gate performance determines collision quality.
+3. **Detector Replay**
+   - After each collision, animated detector tracks are shown in a replay overlay.
+   - Replay intensity reflects event quality/particle outcome.
 
-## Tile Types
-- Injector: +Beam, +Heat
-- Magnet: +Focus
-- Luminosity: +Lumi
-- Detector: +Detector quality
-- Cooling: -Heat
-- Chamber: starts tunnel + collision sequence
+## Goal
+Complete target particles in order while managing lives and machine state.
 
 ## Controls
-- Enter: start / restart from title or game over
-- Q/W/A/S or Arrow keys: board movement
-- Space: start tunnel phase (only on Chamber tile)
-- A/D or Left/Right during tunnel: steer beam packet
+- Enter: start/restart
+- Q/W/A/S or arrows: move on station grid
+- Space: start tunnel run from CHAMBER
+- A/D or Left/Right in tunnel: steer beam packet
 - P: pause
 - R: reset
+
+## Window Support
+- Designed for **1100x760 or larger**.
+- The app enforces a minimum size and shows a warning if smaller.
 
 ## Run
 ```bash

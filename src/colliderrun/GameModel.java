@@ -1,39 +1,38 @@
 package colliderrun;
 
 import java.util.LinkedHashSet;
-import java.util.Random;
 import java.util.Set;
 
 public class GameModel {
     public static final int ROWS = 7;
 
-    private final Random random = new Random();
-    private final CollisionEngine collisionEngine = new CollisionEngine(new ParticleDatabase(), random);
+    private final CollisionEngine collisionEngine = new CollisionEngine(new ParticleDatabase(), new java.util.Random());
 
     public final BoardTile[][] board = new BoardTile[ROWS][];
     public final Actor player = new Actor(0, 0);
     public final Set<ParticleType> discoveries = new LinkedHashSet<>();
 
-    public double beamEnergy = 20;
-    public double magnetFocus = 35;
-    public double luminosity = 20;
-    public double detectorCalibration = 45;
-    public double heat = 10;
+    public double beamEnergy = 25;
+    public double magnetFocus = 45;
+    public double luminosity = 30;
+    public double detectorCalibration = 50;
+    public double heat = 8;
 
     public int score;
-    public int lives = 3;
+    public int lives = 4;
     public int targetIndex;
 
     public boolean gameOver;
     public boolean victory;
     public boolean tunnelMode;
 
-    public String eventLog = "Goal: tune machine, reach CHAMBER, run beam tunnel, confirm target particle.";
+    public String eventLog = "Step 1: tune stations. Step 2: start chamber run. Step 3: review detector tracks.";
 
     public boolean lastCollisionTriggered;
     public boolean lastCollisionSuccess;
     public double lastEffectiveEnergy;
     public double lastPartonFraction;
+    public ParticleType lastParticle;
 
     public GameModel() {
         resetBoard();
@@ -44,16 +43,16 @@ public class GameModel {
 
         lastCollisionTriggered = false;
 
-        beamEnergy = clamp(beamEnergy - 0.0035 * deltaMs, 0, 450);
-        luminosity = clamp(luminosity - 0.0025 * deltaMs, 0, 100);
-        detectorCalibration = clamp(detectorCalibration - 0.0015 * deltaMs, 0, 100);
-        magnetFocus = clamp(magnetFocus - 0.0018 * deltaMs, 0, 100);
-        heat = clamp(heat + 0.0012 * deltaMs, 0, 120);
+        beamEnergy = clamp(beamEnergy - 0.002 * deltaMs, 0, 450);
+        luminosity = clamp(luminosity - 0.0015 * deltaMs, 0, 100);
+        detectorCalibration = clamp(detectorCalibration - 0.001 * deltaMs, 0, 100);
+        magnetFocus = clamp(magnetFocus - 0.0011 * deltaMs, 0, 100);
+        heat = clamp(heat + 0.0009 * deltaMs, 0, 120);
 
-        if (heat > 95) {
+        if (heat > 98) {
             lives = Math.max(0, lives - 1);
-            heat = 60;
-            eventLog = "Magnet quench! Cooling failure cost one life.";
+            heat = 68;
+            eventLog = "Magnet quench: one life lost. Use cooling stations before chamber run.";
         }
 
         if (lives <= 0) gameOver = true;
@@ -65,13 +64,12 @@ public class GameModel {
         int nr = player.row + dr;
         int nc = player.col + dc;
         if (!isValid(nr, nc)) {
-            eventLog = "Out of bounds. Stay on lattice.";
+            eventLog = "Invalid move. Stay on station grid.";
             return;
         }
 
         player.row = nr;
         player.col = nc;
-
         BoardTile tile = board[nr][nc];
         tile.visited = true;
         applyTile(tile.type);
@@ -81,11 +79,11 @@ public class GameModel {
         if (gameOver || victory || tunnelMode) return false;
         BoardTile tile = board[player.row][player.col];
         if (tile.type != TileType.CHAMBER) {
-            eventLog = "Move to CHAMBER tile first.";
+            eventLog = "Move to CHAMBER station first.";
             return false;
         }
         tunnelMode = true;
-        eventLog = "Tunnel phase: steer beam packet with A/D (or Left/Right), survive gates.";
+        eventLog = "Chamber run started: guide beam packet through tunnel gates.";
         return true;
     }
 
@@ -108,28 +106,29 @@ public class GameModel {
         lastCollisionSuccess = outcome.valid();
         lastEffectiveEnergy = outcome.effectiveEnergy();
         lastPartonFraction = outcome.partonFraction();
+        lastParticle = outcome.particle();
 
-        heat = clamp(heat + 15, 0, 120);
-        luminosity = clamp(luminosity - 8, 0, 100);
+        heat = clamp(heat + 12, 0, 120);
+        luminosity = clamp(luminosity - 6, 0, 100);
         score += outcome.scoreDelta();
 
         if (!outcome.valid() || outcome.particle() == null) {
             lives = Math.max(0, lives - 1);
-            eventLog = outcome.message() + " Life lost.";
+            eventLog = outcome.message() + " Collision failed to produce target-quality signal.";
         } else {
             discoveries.add(outcome.particle());
             if (outcome.particle().ordinal() >= targetIndex) {
                 targetIndex++;
-                score += 400;
-                eventLog = outcome.message() + " TARGET COMPLETE.";
+                score += 300;
+                eventLog = outcome.message() + " Target milestone completed.";
             } else {
-                eventLog = outcome.message() + " Not enough for current target.";
+                eventLog = outcome.message() + " Valid event, but target not reached yet.";
             }
         }
 
         if (targetIndex >= ParticleType.values().length) {
             victory = true;
-            eventLog = "Campaign complete: all target particles confirmed.";
+            eventLog = "Campaign complete: detector confirmed all target signatures.";
         }
 
         if (lives <= 0) gameOver = true;
@@ -138,50 +137,34 @@ public class GameModel {
     private void applyTile(TileType type) {
         switch (type) {
             case INJECTOR -> {
-                beamEnergy = clamp(beamEnergy + 28, 0, 450);
-                heat = clamp(heat + 7, 0, 120);
-                score += 16;
-                eventLog = "Injector raised beam to " + fmt(beamEnergy) + " GeV.";
+                beamEnergy = clamp(beamEnergy + 22, 0, 450);
+                heat = clamp(heat + 6, 0, 120);
+                score += 12;
+                eventLog = "Injector station: beam energy increased.";
             }
             case MAGNET -> {
-                magnetFocus = clamp(magnetFocus + 16, 0, 100);
-                heat = clamp(heat + 4, 0, 120);
-                score += 14;
-                eventLog = "Magnet focus now " + fmt(magnetFocus) + "%";
+                magnetFocus = clamp(magnetFocus + 14, 0, 100);
+                heat = clamp(heat + 3, 0, 120);
+                score += 10;
+                eventLog = "Magnet station: beam focus improved.";
             }
             case LUMINOSITY -> {
-                luminosity = clamp(luminosity + 18, 0, 100);
-                score += 12;
-                eventLog = "Luminosity now " + fmt(luminosity) + "%";
+                luminosity = clamp(luminosity + 15, 0, 100);
+                score += 10;
+                eventLog = "Luminosity station: bunch intensity increased.";
             }
             case DETECTOR -> {
-                detectorCalibration = clamp(detectorCalibration + 17, 0, 100);
-                heat = clamp(heat - 3, 0, 120);
-                score += 13;
-                eventLog = "Detector calibration " + fmt(detectorCalibration) + "%";
+                detectorCalibration = clamp(detectorCalibration + 14, 0, 100);
+                heat = clamp(heat - 2, 0, 120);
+                score += 10;
+                eventLog = "Detector station: calibration improved.";
             }
             case COOLING -> {
-                heat = clamp(heat - 18, 0, 120);
-                magnetFocus = clamp(magnetFocus + 5, 0, 100);
-                score += 10;
-                eventLog = "Cooling active. Heat " + fmt(heat) + "%";
+                heat = clamp(heat - 16, 0, 120);
+                score += 9;
+                eventLog = "Cooling station: magnet temperature reduced.";
             }
-            case CHAMBER -> eventLog = "At CHAMBER. Press SPACE to start tunnel phase.";
-        }
-
-        if (type != TileType.CHAMBER) {
-            maybeRerollTile();
-        }
-    }
-
-    private void maybeRerollTile() {
-        if (random.nextDouble() < 0.2) {
-            int r = 1 + random.nextInt(ROWS - 1);
-            int c = random.nextInt(r + 1);
-            if (board[r][c].type != TileType.CHAMBER) {
-                board[r][c].type = rollTileType();
-                board[r][c].visited = false;
-            }
+            case CHAMBER -> eventLog = "Chamber ready. Press SPACE to start chamber run.";
         }
     }
 
@@ -189,25 +172,25 @@ public class GameModel {
         for (int r = 0; r < ROWS; r++) {
             board[r] = new BoardTile[r + 1];
             for (int c = 0; c <= r; c++) {
-                board[r][c] = new BoardTile(r, c, rollTileType());
+                TileType t;
+                if (r == ROWS - 1 && c == ROWS / 2) t = TileType.CHAMBER;
+                else {
+                    int pattern = (r + c) % 5;
+                    t = switch (pattern) {
+                        case 0 -> TileType.INJECTOR;
+                        case 1 -> TileType.MAGNET;
+                        case 2 -> TileType.LUMINOSITY;
+                        case 3 -> TileType.DETECTOR;
+                        default -> TileType.COOLING;
+                    };
+                }
+                board[r][c] = new BoardTile(r, c, t);
             }
         }
-        board[0][0].type = TileType.INJECTOR;
-        board[ROWS - 1][ROWS / 2].type = TileType.CHAMBER;
     }
 
     public ParticleType currentTarget() {
         return ParticleType.values()[Math.min(targetIndex, ParticleType.values().length - 1)];
-    }
-
-    private TileType rollTileType() {
-        int x = random.nextInt(100);
-        if (x < 24) return TileType.INJECTOR;
-        if (x < 45) return TileType.MAGNET;
-        if (x < 64) return TileType.LUMINOSITY;
-        if (x < 83) return TileType.DETECTOR;
-        if (x < 97) return TileType.COOLING;
-        return TileType.CHAMBER;
     }
 
     public boolean isValid(int row, int col) {
@@ -215,13 +198,13 @@ public class GameModel {
     }
 
     public void reset() {
-        beamEnergy = 20;
-        magnetFocus = 35;
-        luminosity = 20;
-        detectorCalibration = 45;
-        heat = 10;
+        beamEnergy = 25;
+        magnetFocus = 45;
+        luminosity = 30;
+        detectorCalibration = 50;
+        heat = 8;
         score = 0;
-        lives = 3;
+        lives = 4;
         targetIndex = 0;
         gameOver = false;
         victory = false;
@@ -229,16 +212,13 @@ public class GameModel {
         discoveries.clear();
         player.row = 0;
         player.col = 0;
-        eventLog = "Goal: tune machine, reach CHAMBER, run beam tunnel, confirm target particle.";
+        eventLog = "Step 1: tune stations. Step 2: start chamber run. Step 3: review detector tracks.";
         lastCollisionTriggered = false;
+        lastParticle = null;
         resetBoard();
     }
 
     private static double clamp(double v, double min, double max) {
         return Math.max(min, Math.min(max, v));
-    }
-
-    private static String fmt(double v) {
-        return String.format("%.1f", v);
     }
 }
