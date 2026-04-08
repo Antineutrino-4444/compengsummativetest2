@@ -40,6 +40,17 @@ public class GamePanel extends JPanel {
     private double playerRenderY;
     private double chamberFlash;
 
+    // phase-2 tunnel mini-game
+    private boolean tunnelActive;
+    private double tunnelX;
+    private double tunnelVelocity;
+    private int tunnelStep;
+    private int tunnelHits;
+    private int tunnelMaxSteps;
+    private double gateCenter;
+    private double gateWidth;
+    private double tunnelTick;
+
     public GamePanel() {
         setBackground(new Color(7, 10, 20));
         setFocusable(true);
@@ -58,6 +69,7 @@ public class GamePanel extends JPanel {
                         if (state == ScreenState.TITLE || state == ScreenState.END) {
                             model.reset();
                             particles.clear();
+                            tunnelActive = false;
                             state = ScreenState.PLAYING;
                         }
                     }
@@ -68,35 +80,34 @@ public class GamePanel extends JPanel {
                     case KeyEvent.VK_R -> {
                         model.reset();
                         particles.clear();
+                        tunnelActive = false;
                         state = ScreenState.PLAYING;
                     }
                     case KeyEvent.VK_SPACE -> {
-                        if (state == ScreenState.PLAYING) {
-                            model.triggerCollision();
-                            if (model.lastCollisionTriggered) {
-                                chamberFlash = model.lastCollisionSuccess ? 1.0 : 0.65;
-                                spawnCollisionParticles(model.lastCollisionSuccess ? 55 : 28);
+                        if (state == ScreenState.PLAYING && !tunnelActive) {
+                            if (model.beginCollisionSequence()) {
+                                startTunnelPhase();
                             }
                         }
                     }
-                    default -> {
-                        if (state == ScreenState.PLAYING) {
-                            handleMove(e.getKeyCode());
-                        }
+                    case KeyEvent.VK_A, KeyEvent.VK_LEFT -> {
+                        if (tunnelActive) tunnelVelocity -= 0.12;
+                        else if (state == ScreenState.PLAYING) model.movePlayer(1, 0);
+                    }
+                    case KeyEvent.VK_D, KeyEvent.VK_RIGHT -> {
+                        if (tunnelActive) tunnelVelocity += 0.12;
+                        else if (state == ScreenState.PLAYING) model.movePlayer(1, 1);
+                    }
+                    case KeyEvent.VK_Q, KeyEvent.VK_NUMPAD7 -> {
+                        if (!tunnelActive && state == ScreenState.PLAYING) model.movePlayer(-1, -1);
+                    }
+                    case KeyEvent.VK_W, KeyEvent.VK_NUMPAD9, KeyEvent.VK_UP -> {
+                        if (!tunnelActive && state == ScreenState.PLAYING) model.movePlayer(-1, 0);
                     }
                 }
                 repaint();
             }
         });
-    }
-
-    private void handleMove(int keyCode) {
-        switch (keyCode) {
-            case KeyEvent.VK_Q, KeyEvent.VK_NUMPAD7 -> model.movePlayer(-1, -1);
-            case KeyEvent.VK_W, KeyEvent.VK_NUMPAD9, KeyEvent.VK_UP -> model.movePlayer(-1, 0);
-            case KeyEvent.VK_A, KeyEvent.VK_NUMPAD1, KeyEvent.VK_LEFT -> model.movePlayer(1, 0);
-            case KeyEvent.VK_S, KeyEvent.VK_NUMPAD3, KeyEvent.VK_RIGHT, KeyEvent.VK_DOWN -> model.movePlayer(1, 1);
-        }
     }
 
     private void onFrame(ActionEvent ignored) {
@@ -106,9 +117,15 @@ public class GamePanel extends JPanel {
         pulse += dt * 0.0022;
 
         if (state == ScreenState.PLAYING) {
-            model.tick(dt);
+            if (tunnelActive) {
+                tickTunnel(dt);
+            } else {
+                model.tick(dt);
+            }
+
             if (model.gameOver || model.victory) {
                 state = ScreenState.END;
+                tunnelActive = false;
             }
         }
 
@@ -117,10 +134,56 @@ public class GamePanel extends JPanel {
         repaint();
     }
 
+    private void startTunnelPhase() {
+        tunnelActive = true;
+        tunnelX = 0.5;
+        tunnelVelocity = 0;
+        tunnelStep = 0;
+        tunnelHits = 0;
+        tunnelMaxSteps = 12;
+        gateCenter = 0.5;
+        gateWidth = 0.22;
+        tunnelTick = 0;
+    }
+
+    private void tickTunnel(long dt) {
+        tunnelTick += dt;
+        tunnelX += tunnelVelocity * dt * 0.0016;
+        tunnelVelocity *= 0.93;
+        tunnelX = Math.max(0.02, Math.min(0.98, tunnelX));
+
+        if (tunnelTick >= 430) {
+            tunnelTick = 0;
+            tunnelStep++;
+            boolean hit = tunnelX >= gateCenter - gateWidth && tunnelX <= gateCenter + gateWidth;
+            if (hit) {
+                tunnelHits++;
+                spawnTunnelSpark(new Color(120, 255, 170));
+            } else {
+                spawnTunnelSpark(new Color(255, 110, 110));
+            }
+
+            gateCenter = 0.18 + random.nextDouble() * 0.64;
+            gateWidth = Math.max(0.08, 0.24 - tunnelStep * 0.01);
+
+            if (tunnelStep >= tunnelMaxSteps) {
+                finishTunnelPhase();
+            }
+        }
+    }
+
+    private void finishTunnelPhase() {
+        tunnelActive = false;
+        double quality = tunnelHits / (double) tunnelMaxSteps;
+        model.finishCollisionSequence(quality);
+        chamberFlash = model.lastCollisionSuccess ? 1.0 : 0.65;
+        spawnCollisionParticles(model.lastCollisionSuccess ? 60 : 30);
+    }
+
     private void updateLayout() {
         boardPoints.clear();
         int centerX = getWidth() / 2;
-        int topY = 170;
+        int topY = 180;
         int gapX = 95;
         int gapY = 62;
 
@@ -157,10 +220,13 @@ public class GamePanel extends JPanel {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         drawBackground(g2);
-        drawBeamline(g2);
         drawBoard(g2);
         drawParticles(g2);
         drawHud(g2);
+
+        if (tunnelActive) {
+            drawTunnelOverlay(g2);
+        }
 
         if (state == ScreenState.TITLE) drawTitle(g2);
         if (state == ScreenState.PAUSED) drawPause(g2);
@@ -181,32 +247,6 @@ public class GamePanel extends JPanel {
             int y = (i * 43 + 21) % Math.max(h, 1);
             int r = (i % 3) + 1;
             g2.fillOval(x, y, r, r);
-        }
-    }
-
-    private void drawBeamline(Graphics2D g2) {
-        Point chamber = boardPoints.get(key(GameModel.ROWS - 1, GameModel.ROWS / 2));
-        if (chamber == null) return;
-
-        int sourceLeftX = getWidth() / 2 - 360;
-        int sourceRightX = getWidth() / 2 + 360;
-        int sourceY = chamber.y - 250;
-
-        float alpha = 0.24f + (float) (Math.sin(pulse * 2.0) * 0.08 + 0.08);
-        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
-        g2.setStroke(new BasicStroke(6f));
-        g2.setColor(new Color(70, 220, 255));
-        g2.drawLine(sourceLeftX, sourceY, chamber.x - 12, chamber.y - 6);
-        g2.setColor(new Color(255, 120, 180));
-        g2.drawLine(sourceRightX, sourceY, chamber.x + 12, chamber.y - 6);
-        g2.setComposite(AlphaComposite.SrcOver);
-
-        if (chamberFlash > 0) {
-            float flash = (float) Math.min(1.0, chamberFlash);
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, flash * 0.65f));
-            g2.setColor(model.lastCollisionSuccess ? new Color(140, 255, 190) : new Color(255, 110, 110));
-            g2.fill(new Ellipse2D.Double(chamber.x - 70, chamber.y - 70, 140, 140));
-            g2.setComposite(AlphaComposite.SrcOver);
         }
     }
 
@@ -234,7 +274,6 @@ public class GamePanel extends JPanel {
             case COOLING -> new Color(120, 220, 240);
             case CHAMBER -> new Color(255, 90, 150);
         };
-
         if (tile.visited) top = top.brighter();
 
         Polygon topFace = new Polygon(new int[]{x, x + hw, x, x - hw}, new int[]{y - hh, y, y + hh, y}, 4);
@@ -258,8 +297,15 @@ public class GamePanel extends JPanel {
             float a = 0.35f + (float) ((Math.sin(pulse * 3 + tile.row) + 1) * 0.22);
             g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, a));
             g2.setColor(new Color(255, 180, 220));
-            g2.fillOval(x - 12, y - 10, 24, 20);
+            g2.fillOval(x - 14, y - 10, 28, 20);
             g2.setComposite(AlphaComposite.SrcOver);
+
+            if (chamberFlash > 0) {
+                g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) (0.45 * chamberFlash)));
+                g2.setColor(model.lastCollisionSuccess ? new Color(140, 255, 190) : new Color(255, 110, 110));
+                g2.fill(new Ellipse2D.Double(x - 70, y - 70, 140, 140));
+                g2.setComposite(AlphaComposite.SrcOver);
+            }
         }
     }
 
@@ -274,36 +320,70 @@ public class GamePanel extends JPanel {
         g2.fillOval(x + 3, y - 49 + bob, 4, 4);
     }
 
-    private void drawParticles(Graphics2D g2) {
-        for (ParticleFx fx : particles) {
-            fx.draw(g2);
-        }
-    }
-
     private void drawHud(Graphics2D g2) {
         int w = getWidth();
         g2.setColor(new Color(13, 22, 45, 225));
-        g2.fillRoundRect(18, 18, w - 36, 138, 16, 16);
+        g2.fillRoundRect(18, 18, w - 36, 140, 16, 16);
 
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("SansSerif", Font.BOLD, 24));
-        g2.drawString("Collider Run: Operations Console", 30, 48);
+        g2.drawString("Collider Run Console", 30, 48);
 
-        meter(g2, 30, 62, 220, "Beam", model.beamEnergy / 450.0, new Color(80, 205, 255));
-        meter(g2, 265, 62, 220, "Focus", model.magnetFocus / 100.0, new Color(170, 150, 255));
-        meter(g2, 500, 62, 220, "Lumi", model.luminosity / 100.0, new Color(255, 205, 90));
-        meter(g2, 735, 62, 220, "Detector", model.detectorCalibration / 100.0, new Color(130, 240, 165));
-        meter(g2, 970, 62, 220, "Heat", model.heat / 120.0, new Color(255, 120, 120));
+        meter(g2, 30, 62, 180, "Beam", model.beamEnergy / 450.0, new Color(80, 205, 255));
+        meter(g2, 220, 62, 180, "Focus", model.magnetFocus / 100.0, new Color(170, 150, 255));
+        meter(g2, 410, 62, 180, "Lumi", model.luminosity / 100.0, new Color(255, 205, 90));
+        meter(g2, 600, 62, 180, "Detector", model.detectorCalibration / 100.0, new Color(130, 240, 165));
+        meter(g2, 790, 62, 180, "Heat", model.heat / 120.0, new Color(255, 120, 120));
 
         g2.setFont(new Font("SansSerif", Font.BOLD, 16));
         g2.setColor(new Color(255, 245, 185));
-        g2.drawString("Target: " + model.currentTarget().label + "  (" + model.currentTarget().thresholdGeV + " GeV)", 30, 128);
-        g2.drawString("Score: " + model.score + "    Lives: " + model.lives, 380, 128);
+        g2.drawString("Current target: " + model.currentTarget().label + "  (" + model.currentTarget().thresholdGeV + " GeV)", 30, 128);
+        g2.drawString("Score: " + model.score + "   Lives: " + model.lives, 480, 128);
         g2.setColor(new Color(200, 225, 255));
-        g2.drawString("Move: Q/W/A/S or arrows   Fire collision: SPACE   Pause: P", 640, 128);
+        g2.drawString("Goal: tune board -> go to CHAMBER -> SPACE -> clear tunnel -> collision", 720, 128);
 
         drawDiscoveryList(g2);
         drawEventLog(g2);
+    }
+
+    private void drawTunnelOverlay(Graphics2D g2) {
+        int w = getWidth();
+        int h = getHeight();
+        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.78f));
+        g2.setColor(new Color(5, 10, 24));
+        g2.fillRect(0, 0, w, h);
+        g2.setComposite(AlphaComposite.SrcOver);
+
+        int tunnelW = 520;
+        int tunnelH = 280;
+        int tx = w / 2 - tunnelW / 2;
+        int ty = h / 2 - tunnelH / 2;
+
+        g2.setColor(new Color(18, 28, 58));
+        g2.fillRoundRect(tx, ty, tunnelW, tunnelH, 20, 20);
+        g2.setColor(new Color(120, 150, 220));
+        g2.setStroke(new BasicStroke(3f));
+        g2.drawRoundRect(tx, ty, tunnelW, tunnelH, 20, 20);
+
+        int laneY = ty + tunnelH / 2;
+        g2.setColor(new Color(80, 100, 170));
+        g2.drawLine(tx + 40, laneY, tx + tunnelW - 40, laneY);
+
+        int gateX = tx + 40 + (int) ((tunnelW - 80) * gateCenter);
+        int gateRadius = (int) ((tunnelW - 80) * gateWidth * 0.25);
+        g2.setColor(new Color(130, 255, 170));
+        g2.drawOval(gateX - gateRadius, laneY - 40, gateRadius * 2, 80);
+
+        int beamX = tx + 40 + (int) ((tunnelW - 80) * tunnelX);
+        g2.setColor(new Color(255, 210, 120));
+        g2.fillOval(beamX - 10, laneY - 10, 20, 20);
+
+        g2.setColor(Color.WHITE);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 22));
+        g2.drawString("Tunnel Phase", tx + 20, ty + 34);
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 16));
+        g2.drawString("Steer beam packet through gates using A/D or Left/Right", tx + 20, ty + 58);
+        g2.drawString("Hits: " + tunnelHits + " / " + tunnelMaxSteps + "   Step: " + tunnelStep + " / " + tunnelMaxSteps, tx + 20, ty + 82);
     }
 
     private void meter(Graphics2D g2, int x, int y, int w, String label, double v, Color c) {
@@ -321,20 +401,20 @@ public class GamePanel extends JPanel {
     }
 
     private void drawDiscoveryList(Graphics2D g2) {
-        int x = getWidth() - 290;
-        int y = 170;
+        int x = getWidth() - 300;
+        int y = 172;
         g2.setColor(new Color(14, 22, 42, 220));
-        g2.fillRoundRect(x, y, 260, 180, 14, 14);
+        g2.fillRoundRect(x, y, 270, 180, 14, 14);
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("SansSerif", Font.BOLD, 16));
-        g2.drawString("Validated Signatures", x + 12, y + 24);
+        g2.drawString("Confirmed events", x + 12, y + 24);
 
         g2.setFont(new Font("Monospaced", Font.PLAIN, 13));
         int ty = y + 46;
         for (ParticleType p : ParticleType.values()) {
             boolean found = model.discoveries.contains(p);
             g2.setColor(found ? new Color(130, 255, 150) : new Color(130, 140, 170));
-            g2.drawString((found ? "✓ " : "• ") + p.label + "  " + p.thresholdGeV + " GeV", x + 12, ty);
+            g2.drawString((found ? "OK " : "-- ") + p.label + "  " + p.thresholdGeV + " GeV", x + 12, ty);
             ty += 19;
         }
     }
@@ -353,11 +433,12 @@ public class GamePanel extends JPanel {
         overlay(g2);
         g2.setColor(Color.WHITE);
         g2.setFont(new Font("SansSerif", Font.BOLD, 46));
-        g2.drawString("Q*Bert: Collider Run", getWidth() / 2 - 245, getHeight() / 2 - 70);
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 21));
-        g2.drawString("This is a collider operations game: tune modules, then fire collisions from the chamber.", getWidth() / 2 - 430, getHeight() / 2 - 20);
-        g2.drawString("Hit target signatures in order from μ+μ- to t t̄.", getWidth() / 2 - 205, getHeight() / 2 + 12);
-        g2.drawString("Press ENTER to start.", getWidth() / 2 - 110, getHeight() / 2 + 50);
+        g2.drawString("Qbert Collider Run", getWidth() / 2 - 220, getHeight() / 2 - 70);
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 20));
+        g2.drawString("Phase 1: tune collider modules on board", getWidth() / 2 - 185, getHeight() / 2 - 20);
+        g2.drawString("Phase 2: chamber tunnel mini-game decides collision quality", getWidth() / 2 - 255, getHeight() / 2 + 10);
+        g2.drawString("Win by confirming every target particle in order.", getWidth() / 2 - 185, getHeight() / 2 + 40);
+        g2.drawString("Press ENTER to start.", getWidth() / 2 - 95, getHeight() / 2 + 78);
     }
 
     private void drawPause(Graphics2D g2) {
@@ -387,12 +468,26 @@ public class GamePanel extends JPanel {
         g2.setComposite(AlphaComposite.SrcOver);
     }
 
+    private void drawParticles(Graphics2D g2) {
+        for (ParticleFx fx : particles) {
+            fx.draw(g2);
+        }
+    }
+
     private void spawnCollisionParticles(int count) {
         Point chamber = boardPoints.get(key(GameModel.ROWS - 1, GameModel.ROWS / 2));
         if (chamber == null) return;
         Color color = model.lastCollisionSuccess ? new Color(140, 255, 190) : new Color(255, 120, 120);
         for (int i = 0; i < count; i++) {
             particles.add(new ParticleFx(chamber.x, chamber.y, color));
+        }
+    }
+
+    private void spawnTunnelSpark(Color c) {
+        int x = getWidth() / 2;
+        int y = getHeight() / 2;
+        for (int i = 0; i < 9; i++) {
+            particles.add(new ParticleFx(x, y, c));
         }
     }
 

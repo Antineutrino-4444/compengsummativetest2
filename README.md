@@ -1,32 +1,32 @@
-# Q*Bert: Collider Run (Java)
+# Qbert Collider Run (Java)
 
-A polished Java arcade game where you run a particle-collider campaign by stepping across an isometric operations lattice.
+A Java arcade game with two linked gameplay phases:
+- **Phase 1 (Board Ops):** move across modules to tune collider systems.
+- **Phase 2 (Tunnel Run):** after reaching the chamber, steer a beam packet through gates to determine collision quality.
 
-## Core Loop (now explicit)
-1. Move across module tiles to tune machine parameters.
-2. Build a good collider state: energy, magnet focus, luminosity, detector calibration, and heat control.
-3. Reach the **collision chamber** tile.
-4. Press **SPACE** to fire a proton-proton collision event.
-5. Validate target signatures in increasing mass order (μ+μ- → t t̄).
+## Clear Objective
+Repeat this cycle until all targets are confirmed in order:
+1. Improve machine state (Beam, Focus, Luminosity, Detector, Heat).
+2. Move to **CHAMBER** tile.
+3. Press **Space** to enter tunnel phase.
+4. Survive tunnel gates (A/D or Left/Right).
+5. Collision result is computed and may complete current target.
 
-## Tile Systems
-- **Injector**: raises beam energy quickly but adds heat.
-- **Magnet**: improves beam focus.
-- **Luminosity**: raises event rate.
-- **Detector**: improves calibration quality.
-- **Cooling**: drops heat and stabilizes operation.
-- **Chamber**: required tile for firing collisions.
-
-## Win / Lose
-- Win by completing all target signatures in sequence.
-- Lose if lives run out (bad collisions / quenches).
+## Tile Types
+- Injector: +Beam, +Heat
+- Magnet: +Focus
+- Luminosity: +Lumi
+- Detector: +Detector quality
+- Cooling: -Heat
+- Chamber: starts tunnel + collision sequence
 
 ## Controls
-- `Enter` = start/restart from title/end
-- `Q`/`W`/`A`/`S` or arrows = move on the lattice
-- `Space` = trigger collision (only works on chamber tile)
-- `P` = pause
-- `R` = reset run
+- Enter: start / restart from title or game over
+- Q/W/A/S or Arrow keys: board movement
+- Space: start tunnel phase (only on Chamber tile)
+- A/D or Left/Right during tunnel: steer beam packet
+- P: pause
+- R: reset
 
 ## Run
 ```bash

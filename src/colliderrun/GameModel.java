@@ -26,21 +26,21 @@ public class GameModel {
 
     public boolean gameOver;
     public boolean victory;
+    public boolean tunnelMode;
 
-    public String eventLog = "Step on modules to tune the machine. Reach chamber and press SPACE to collide.";
+    public String eventLog = "Goal: tune machine, reach CHAMBER, run beam tunnel, confirm target particle.";
 
     public boolean lastCollisionTriggered;
     public boolean lastCollisionSuccess;
     public double lastEffectiveEnergy;
     public double lastPartonFraction;
-    public String lastCollisionLabel = "";
 
     public GameModel() {
         resetBoard();
     }
 
     public void tick(long deltaMs) {
-        if (gameOver || victory) return;
+        if (gameOver || victory || tunnelMode) return;
 
         lastCollisionTriggered = false;
 
@@ -53,21 +53,19 @@ public class GameModel {
         if (heat > 95) {
             lives = Math.max(0, lives - 1);
             heat = 60;
-            eventLog = "Quench event! Superconducting magnets tripped. Life lost.";
+            eventLog = "Magnet quench! Cooling failure cost one life.";
         }
 
-        if (lives <= 0) {
-            gameOver = true;
-        }
+        if (lives <= 0) gameOver = true;
     }
 
     public void movePlayer(int dr, int dc) {
-        if (gameOver || victory) return;
+        if (gameOver || victory || tunnelMode) return;
 
         int nr = player.row + dr;
         int nc = player.col + dc;
         if (!isValid(nr, nc)) {
-            eventLog = "Out of bounds. Stay on the accelerator lattice.";
+            eventLog = "Out of bounds. Stay on lattice.";
             return;
         }
 
@@ -79,22 +77,30 @@ public class GameModel {
         applyTile(tile.type);
     }
 
-    public void triggerCollision() {
-        if (gameOver || victory) return;
-
+    public boolean beginCollisionSequence() {
+        if (gameOver || victory || tunnelMode) return false;
         BoardTile tile = board[player.row][player.col];
         if (tile.type != TileType.CHAMBER) {
-            eventLog = "Collision can only be fired from the chamber tile.";
-            return;
+            eventLog = "Move to CHAMBER tile first.";
+            return false;
         }
+        tunnelMode = true;
+        eventLog = "Tunnel phase: steer beam packet with A/D (or Left/Right), survive gates.";
+        return true;
+    }
 
-        ParticleType target = ParticleType.values()[Math.min(targetIndex, ParticleType.values().length - 1)];
+    public void finishCollisionSequence(double steeringQuality) {
+        if (!tunnelMode) return;
+        tunnelMode = false;
+
+        ParticleType target = currentTarget();
         CollisionOutcome outcome = collisionEngine.resolve(
                 beamEnergy,
                 magnetFocus,
                 detectorCalibration,
                 luminosity,
                 heat,
+                steeringQuality,
                 target
         );
 
@@ -102,7 +108,6 @@ public class GameModel {
         lastCollisionSuccess = outcome.valid();
         lastEffectiveEnergy = outcome.effectiveEnergy();
         lastPartonFraction = outcome.partonFraction();
-        lastCollisionLabel = outcome.particle() == null ? "no-signature" : outcome.particle().label;
 
         heat = clamp(heat + 15, 0, 120);
         luminosity = clamp(luminosity - 8, 0, 100);
@@ -115,21 +120,19 @@ public class GameModel {
             discoveries.add(outcome.particle());
             if (outcome.particle().ordinal() >= targetIndex) {
                 targetIndex++;
-                score += 350;
-                eventLog = outcome.message() + " Target completed.";
+                score += 400;
+                eventLog = outcome.message() + " TARGET COMPLETE.";
             } else {
-                eventLog = outcome.message() + " Tune harder for heavier target.";
+                eventLog = outcome.message() + " Not enough for current target.";
             }
         }
 
         if (targetIndex >= ParticleType.values().length) {
             victory = true;
-            eventLog = "All target signatures achieved. Collider campaign complete!";
+            eventLog = "Campaign complete: all target particles confirmed.";
         }
 
-        if (lives <= 0) {
-            gameOver = true;
-        }
+        if (lives <= 0) gameOver = true;
     }
 
     private void applyTile(TileType type) {
@@ -138,32 +141,32 @@ public class GameModel {
                 beamEnergy = clamp(beamEnergy + 28, 0, 450);
                 heat = clamp(heat + 7, 0, 120);
                 score += 16;
-                eventLog = "Injector ramped beam energy to " + fmt(beamEnergy) + " GeV.";
+                eventLog = "Injector raised beam to " + fmt(beamEnergy) + " GeV.";
             }
             case MAGNET -> {
                 magnetFocus = clamp(magnetFocus + 16, 0, 100);
                 heat = clamp(heat + 4, 0, 120);
                 score += 14;
-                eventLog = "Quadrupoles focused beam: " + fmt(magnetFocus) + "%";
+                eventLog = "Magnet focus now " + fmt(magnetFocus) + "%";
             }
             case LUMINOSITY -> {
                 luminosity = clamp(luminosity + 18, 0, 100);
                 score += 12;
-                eventLog = "Bunch intensity increased: luminosity " + fmt(luminosity) + "%";
+                eventLog = "Luminosity now " + fmt(luminosity) + "%";
             }
             case DETECTOR -> {
                 detectorCalibration = clamp(detectorCalibration + 17, 0, 100);
                 heat = clamp(heat - 3, 0, 120);
                 score += 13;
-                eventLog = "Detector recalibrated to " + fmt(detectorCalibration) + "%";
+                eventLog = "Detector calibration " + fmt(detectorCalibration) + "%";
             }
             case COOLING -> {
                 heat = clamp(heat - 18, 0, 120);
                 magnetFocus = clamp(magnetFocus + 5, 0, 100);
                 score += 10;
-                eventLog = "Cryogenic loop stabilized magnets. Heat now " + fmt(heat) + "%";
+                eventLog = "Cooling active. Heat " + fmt(heat) + "%";
             }
-            case CHAMBER -> eventLog = "At collision chamber: press SPACE to fire a proton-proton event.";
+            case CHAMBER -> eventLog = "At CHAMBER. Press SPACE to start tunnel phase.";
         }
 
         if (type != TileType.CHAMBER) {
@@ -222,10 +225,11 @@ public class GameModel {
         targetIndex = 0;
         gameOver = false;
         victory = false;
+        tunnelMode = false;
         discoveries.clear();
         player.row = 0;
         player.col = 0;
-        eventLog = "Step on modules to tune the machine. Reach chamber and press SPACE to collide.";
+        eventLog = "Goal: tune machine, reach CHAMBER, run beam tunnel, confirm target particle.";
         lastCollisionTriggered = false;
         resetBoard();
     }
